@@ -55,6 +55,11 @@ function withVisionPoseFiles(config) {
 function withVisionPoseXcode(config) {
   return withXcodeProject(config, async (config) => {
     const proj = config.modResults;
+    const iosDir = config.modRequest.platformProjectRoot;
+
+    // Get project name from xcodeproj
+    const xcodeProj = fs.readdirSync(iosDir).find(f => f.endsWith('.xcodeproj'));
+    const projectName = xcodeProj ? xcodeProj.replace('.xcodeproj', '') : 'TrackSpeed';
 
     // Get the native target
     const nativeTargets = proj.pbxNativeTargetSection();
@@ -101,12 +106,13 @@ function withVisionPoseXcode(config) {
 
     const targetGroupKey = projectGroupKey || mainGroupId;
 
-    // Add each source file to the project
+    // Add each source file to the project with correct relative path
     for (const fileName of FILES) {
       try {
-        // Add file with just the filename (file is in project root folder)
-        proj.addSourceFile(fileName, { target: targetUuid }, targetGroupKey);
-        console.log(`[VisionPose] Added to Xcode: ${fileName}`);
+        // Use path relative to ios folder: "ProjectName/filename"
+        const relativePath = `${projectName}/${fileName}`;
+        proj.addSourceFile(relativePath, { target: targetUuid }, targetGroupKey);
+        console.log(`[VisionPose] Added to Xcode: ${relativePath}`);
       } catch (e) {
         // File might already exist, that's okay
         console.log(`[VisionPose] Note for ${fileName}: ${e.message}`);

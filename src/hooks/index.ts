@@ -8,3 +8,4 @@ export { useSyncConnection } from './useSyncConnection';
 export { useSoundDetection } from './useSoundDetection';
 export { useBluetoothSync } from './useBluetoothSync';
 export { useVisionPose } from './useVisionPose';
+export { useSeries } from './useSeries';

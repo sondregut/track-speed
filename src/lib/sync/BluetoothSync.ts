@@ -67,11 +67,14 @@ export class BluetoothSync {
 
   private state: ConnectionState = 'disconnected';
   private discoveredDevices: Map<string, BluetoothDevice> = new Map();
-  private connectedDevice: BluetoothDevice | null = null;
+  private connectedDevices: Map<string, BluetoothDevice> = new Map(); // Support multiple devices
   private isAdvertising: boolean = false;
   private scanSubscription: any = null;
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private sequenceNumber: number = 0;
+
+  // Max simultaneous connections (BLE typically supports 7-10)
+  private static readonly MAX_CONNECTIONS = 5;
 
   // Callbacks
   private onStateChange: StateCallback | null = null;
@@ -292,9 +295,21 @@ export class BluetoothSync {
   }
 
   /**
-   * Connect to a device
+   * Connect to a device (supports multiple simultaneous connections)
    */
   async connect(device: BluetoothDevice): Promise<void> {
+    // Check if already connected
+    if (this.connectedDevices.has(device.id)) {
+      console.log('BluetoothSync: Already connected to', device.name);
+      return;
+    }
+
+    // Check max connections
+    if (this.connectedDevices.size >= BluetoothSync.MAX_CONNECTIONS) {
+      this.handleError(new Error(`Maximum ${BluetoothSync.MAX_CONNECTIONS} connections reached`));
+      return;
+    }
+
     this.stopScan();
     this.setState('connecting');
     console.log('BluetoothSync: Connecting to', device.name);
@@ -308,29 +323,43 @@ export class BluetoothSync {
       // Discover services
       await connected.discoverAllServicesAndCharacteristics();
 
-      this.connectedDevice = {
+      const connectedDevice: BluetoothDevice = {
         ...device,
         device: connected,
       };
 
+      // Add to connected devices map
+      this.connectedDevices.set(device.id, connectedDevice);
+
       this.setState('connected');
-      console.log('BluetoothSync: Connected to', device.name);
+      console.log('BluetoothSync: Connected to', device.name, `(${this.connectedDevices.size} total)`);
 
       // Setup disconnect listener
       connected.onDisconnected((error, disconnectedDevice) => {
         console.log('BluetoothSync: Device disconnected:', disconnectedDevice?.name);
-        this.handleDisconnect();
+        this.handleDisconnect(device.id);
       });
 
       // Setup characteristic notifications
       await this.setupNotifications(connected);
 
-      // Start time sync
-      this.startSync();
+      // Start time sync if first connection
+      if (this.connectedDevices.size === 1) {
+        this.startSync();
+      }
 
     } catch (error) {
       console.error('BluetoothSync: Connection failed:', error);
       this.handleError(error as Error);
+    }
+  }
+
+  /**
+   * Connect to multiple devices at once
+   */
+  async connectMultiple(devices: BluetoothDevice[]): Promise<void> {
+    for (const device of devices) {
+      await this.connect(device);
     }
   }
 
@@ -396,33 +425,58 @@ export class BluetoothSync {
   }
 
   /**
-   * Disconnect from device
+   * Disconnect from a specific device
+   */
+  async disconnectDevice(deviceId: string): Promise<void> {
+    const device = this.connectedDevices.get(deviceId);
+    if (device) {
+      try {
+        await device.device.cancelConnection();
+      } catch (error) {
+        console.log('BluetoothSync: Error during disconnect:', error);
+      }
+      this.connectedDevices.delete(deviceId);
+      this.onDeviceLost?.(deviceId);
+    }
+
+    // Update state based on remaining connections
+    if (this.connectedDevices.size === 0) {
+      this.stopSync();
+      this.setState('disconnected');
+      this.timeSync.reset();
+    }
+  }
+
+  /**
+   * Disconnect from all devices
    */
   async disconnect(): Promise<void> {
     this.stopSync();
 
-    if (this.connectedDevice) {
+    for (const [deviceId, device] of this.connectedDevices) {
       try {
-        await this.connectedDevice.device.cancelConnection();
+        await device.device.cancelConnection();
       } catch (error) {
         console.log('BluetoothSync: Error during disconnect:', error);
       }
-      this.connectedDevice = null;
     }
+    this.connectedDevices.clear();
 
     this.setState('disconnected');
     this.timeSync.reset();
   }
 
   /**
-   * Handle disconnection
+   * Handle disconnection of a specific device
    */
-  private handleDisconnect(): void {
-    const deviceId = this.connectedDevice?.id || '';
-    this.stopSync();
-    this.connectedDevice = null;
-    this.setState('disconnected');
+  private handleDisconnect(deviceId: string): void {
+    this.connectedDevices.delete(deviceId);
     this.onDeviceLost?.(deviceId);
+
+    if (this.connectedDevices.size === 0) {
+      this.stopSync();
+      this.setState('disconnected');
+    }
   }
 
   /**
@@ -452,10 +506,10 @@ export class BluetoothSync {
   }
 
   /**
-   * Send sync request
+   * Send sync request to all connected devices
    */
   private async sendSyncRequest(): Promise<void> {
-    if (!this.connectedDevice) return;
+    if (this.connectedDevices.size === 0) return;
 
     const request = this.timeSync.createSyncRequest(this.sequenceNumber++);
     await this.writeCharacteristic(
@@ -465,20 +519,45 @@ export class BluetoothSync {
   }
 
   /**
-   * Write to characteristic
+   * Write to characteristic on all connected devices
    */
   private async writeCharacteristic(charUuid: string, data: any): Promise<void> {
-    if (!this.connectedDevice) return;
+    if (this.connectedDevices.size === 0) return;
+
+    const encoded = this.encodeData(data);
+
+    // Send to all connected devices in parallel
+    const writePromises = Array.from(this.connectedDevices.values()).map(async (device) => {
+      try {
+        await device.device.writeCharacteristicWithResponseForService(
+          TRACK_SPEED_SERVICE_UUID,
+          charUuid,
+          encoded
+        );
+      } catch (error) {
+        console.error(`BluetoothSync: Write error to ${device.name}:`, error);
+      }
+    });
+
+    await Promise.all(writePromises);
+  }
+
+  /**
+   * Write to a specific device
+   */
+  private async writeToDevice(deviceId: string, charUuid: string, data: any): Promise<void> {
+    const device = this.connectedDevices.get(deviceId);
+    if (!device) return;
 
     try {
       const encoded = this.encodeData(data);
-      await this.connectedDevice.device.writeCharacteristicWithResponseForService(
+      await device.device.writeCharacteristicWithResponseForService(
         TRACK_SPEED_SERVICE_UUID,
         charUuid,
         encoded
       );
     } catch (error) {
-      console.error('BluetoothSync: Write error:', error);
+      console.error(`BluetoothSync: Write error to ${device.name}:`, error);
     }
   }
 
@@ -560,10 +639,40 @@ export class BluetoothSync {
   }
 
   /**
-   * Get connected device
+   * Get all connected devices
    */
-  getConnectedDevice(): BluetoothDevice | null {
-    return this.connectedDevice;
+  getConnectedDevices(): BluetoothDevice[] {
+    return Array.from(this.connectedDevices.values());
+  }
+
+  /**
+   * Get connected device by ID
+   */
+  getConnectedDevice(deviceId?: string): BluetoothDevice | null {
+    if (deviceId) {
+      return this.connectedDevices.get(deviceId) || null;
+    }
+    // Return first connected device for backwards compatibility
+    return this.connectedDevices.size > 0
+      ? Array.from(this.connectedDevices.values())[0]
+      : null;
+  }
+
+  /**
+   * Get connected device by role
+   */
+  getDeviceByRole(role: DeviceRole): BluetoothDevice | null {
+    for (const device of this.connectedDevices.values()) {
+      if (device.role === role) return device;
+    }
+    return null;
+  }
+
+  /**
+   * Get connection count
+   */
+  getConnectionCount(): number {
+    return this.connectedDevices.size;
   }
 
   /**
@@ -571,6 +680,13 @@ export class BluetoothSync {
    */
   isReady(): boolean {
     return this.state === 'synced';
+  }
+
+  /**
+   * Check if connected to any device
+   */
+  isConnected(): boolean {
+    return this.connectedDevices.size > 0;
   }
 
   /**

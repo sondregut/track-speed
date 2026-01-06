@@ -4,6 +4,7 @@ export { ResultsScreen } from './ResultsScreen';
 export { SettingsScreen } from './SettingsScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { SessionSetupScreen } from './SessionSetupScreen';
+export { SeriesSetupScreen } from './SeriesSetupScreen';
 export { GhostGateCalibrationScreen } from './GhostGateCalibrationScreen';
 export { AthleteListScreen } from './AthleteListScreen';
 export { ResultDetailScreen } from './ResultDetailScreen';

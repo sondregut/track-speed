@@ -6,10 +6,68 @@
 // ============================================
 
 /** Type of sprint session - determines UI and calculations */
-export type SessionType = 'flying' | 'standing' | 'block_start';
+export type SessionType = 'flying' | 'standing' | 'block_start' | 'series';
 
 /** Start trigger method */
 export type StartMethod = 'touch' | 'ready_set_go' | 'sound_detection' | 'three_two_one' | 'external_gate';
+
+// ============================================
+// Series/Interval Training Types
+// ============================================
+
+/** Series training mode (interval training) */
+export interface SeriesConfig {
+  /** Number of sets in the series */
+  sets: number;
+  /** Number of reps per set */
+  repsPerSet: number;
+  /** Rest time between reps (seconds) */
+  restBetweenReps: number;
+  /** Rest time between sets (seconds) */
+  restBetweenSets: number;
+  /** Distance for each rep (meters) */
+  distance_m: number;
+  /** Auto-start next rep after rest countdown */
+  autoAdvance: boolean;
+  /** Target time for each rep (optional, for pacing) */
+  targetTime_ms?: number;
+}
+
+/** Current state of a series session */
+export interface SeriesState {
+  /** Current set number (1-indexed) */
+  currentSet: number;
+  /** Current rep within the set (1-indexed) */
+  currentRep: number;
+  /** Whether currently in rest period */
+  isResting: boolean;
+  /** Remaining rest time in seconds */
+  restRemaining: number;
+  /** All results from this series */
+  results: SeriesRepResult[];
+  /** Is the series complete */
+  isComplete: boolean;
+}
+
+/** Result for a single rep in a series */
+export interface SeriesRepResult {
+  setNumber: number;
+  repNumber: number;
+  time_ms: number;
+  velocity_ms?: number;
+  comparedToTarget?: 'faster' | 'slower' | 'on_target';
+}
+
+/** Summary statistics for a completed series */
+export interface SeriesSummary {
+  totalReps: number;
+  completedReps: number;
+  averageTime_ms: number;
+  bestTime_ms: number;
+  worstTime_ms: number;
+  averageVelocity_ms?: number;
+  consistency: number; // Standard deviation as percentage
+}
 
 /** Velocity display unit preference */
 export type VelocityUnit = 'm/s' | 'km/h' | 'mph';
@@ -103,6 +161,7 @@ export interface Session {
   sessionType: SessionType;
   flyingConfig?: FlyingConfig; // Set when sessionType === 'flying'
   standardConfig?: StandardConfig; // Set when sessionType === 'standing' | 'block_start'
+  seriesConfig?: SeriesConfig; // Set when sessionType === 'series'
   splitConfig?: SplitConfig;
 
   // Legacy field for backwards compatibility

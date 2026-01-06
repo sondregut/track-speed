@@ -24,6 +24,10 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     navigation.navigate('SessionSetup');
   };
 
+  const handleSeriesTraining = () => {
+    navigation.navigate('SeriesSetup');
+  };
+
   const handleQuickStart = () => {
     if (!currentSession) {
       createSession({ name: 'Quick Session' });
@@ -63,6 +67,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                 variant="secondary"
                 size="large"
               />
+              <GlassButton
+                title="Series Training"
+                onPress={handleSeriesTraining}
+                variant="secondary"
+                size="large"
+              />
             </>
           ) : (
             <>
@@ -76,6 +86,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                 title="New Session"
                 onPress={handleNewSession}
                 variant="secondary"
+                size="large"
+              />
+              <Button
+                title="Series Training"
+                onPress={handleSeriesTraining}
+                variant="outline"
                 size="large"
               />
             </>

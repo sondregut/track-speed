@@ -13,6 +13,7 @@ import {
   SettingsScreen,
   ProfileScreen,
   SessionSetupScreen,
+  SeriesSetupScreen,
   GhostGateCalibrationScreen,
   AthleteListScreen,
   ResultDetailScreen,
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   MainTabs: undefined;
   Timer: { sessionId?: string } | undefined;
   SessionSetup: undefined;
+  SeriesSetup: undefined;
   GhostGateCalibration: undefined;
   AthleteList: { selectionMode?: boolean } | undefined;
   ResultDetail: { resultId: string };
@@ -137,6 +139,14 @@ function ThemedNavigator() {
         <Stack.Screen
           name="SessionSetup"
           component={SessionSetupScreen}
+          options={{
+            animation: 'slide_from_right',
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="SeriesSetup"
+          component={SeriesSetupScreen}
           options={{
             animation: 'slide_from_right',
             presentation: 'card',

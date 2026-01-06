@@ -38,11 +38,15 @@ interface UseBluetoothSyncReturn {
   startScan: () => Promise<void>;
   stopScan: () => void;
 
-  // Connection
+  // Connection (supports multiple devices)
   connectionState: BluetoothConnectionState;
-  connectedDevice: BluetoothDevice | null;
+  connectedDevice: BluetoothDevice | null; // First/primary device (backwards compat)
+  connectedDevices: BluetoothDevice[]; // All connected devices
+  connectionCount: number;
   connect: (device: BluetoothDevice) => Promise<void>;
+  connectMultiple: (devices: BluetoothDevice[]) => Promise<void>;
   disconnect: () => Promise<void>;
+  disconnectDevice: (deviceId: string) => Promise<void>;
 
   // Sync status
   isSynced: boolean;
@@ -75,13 +79,17 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
   const [isScanning, setIsScanning] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<BluetoothDevice[]>([]);
   const [connectionState, setConnectionState] = useState<BluetoothConnectionState>('disconnected');
-  const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
+  const [connectedDevices, setConnectedDevices] = useState<BluetoothDevice[]>([]);
   const [isSynced, setIsSynced] = useState(false);
   const [syncAccuracy, setSyncAccuracy] = useState(Infinity);
   const [lastTimingEvent, setLastTimingEvent] = useState<BluetoothTimingEvent | null>(null);
   const [deviceRole, setDeviceRoleState] = useState<BluetoothDeviceRole>('finish');
   const [gateDistance, setGateDistanceState] = useState<number | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
+
+  // Derived state
+  const connectedDevice = connectedDevices.length > 0 ? connectedDevices[0] : null;
+  const connectionCount = connectedDevices.length;
 
   // Refs
   const bluetoothSync = useRef<BluetoothSync | null>(null);
@@ -120,7 +128,7 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
 
         sync.onDeviceDisconnected((deviceId) => {
           setDiscoveredDevices((prev) => prev.filter((d) => d.id !== deviceId));
-          setConnectedDevice(null);
+          setConnectedDevices((prev) => prev.filter((d) => d.id !== deviceId));
         });
 
         sync.onSyncUpdated((result) => {
@@ -181,24 +189,53 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
     setIsScanning(false);
   }, []);
 
-  // Connect
+  // Connect to a single device
   const connect = useCallback(async (device: BluetoothDevice) => {
     if (!bluetoothSync.current) return;
     try {
       await bluetoothSync.current.connect(device);
-      setConnectedDevice(device);
+      setConnectedDevices((prev) => {
+        // Don't add if already in list
+        if (prev.find((d) => d.id === device.id)) return prev;
+        return [...prev, device];
+      });
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Connection failed'));
     }
   }, []);
 
-  // Disconnect
+  // Connect to multiple devices
+  const connectMultiple = useCallback(async (devices: BluetoothDevice[]) => {
+    if (!bluetoothSync.current) return;
+    try {
+      await bluetoothSync.current.connectMultiple(devices);
+      setConnectedDevices((prev) => {
+        const newDevices = devices.filter((d) => !prev.find((p) => p.id === d.id));
+        return [...prev, ...newDevices];
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Connection failed'));
+    }
+  }, []);
+
+  // Disconnect from all devices
   const disconnect = useCallback(async () => {
     if (!bluetoothSync.current) return;
     try {
       await bluetoothSync.current.disconnect();
-      setConnectedDevice(null);
+      setConnectedDevices([]);
       setIsSynced(false);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Disconnect failed'));
+    }
+  }, []);
+
+  // Disconnect from a specific device
+  const disconnectDevice = useCallback(async (deviceId: string) => {
+    if (!bluetoothSync.current) return;
+    try {
+      await bluetoothSync.current.disconnectDevice(deviceId);
+      setConnectedDevices((prev) => prev.filter((d) => d.id !== deviceId));
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Disconnect failed'));
     }
@@ -248,11 +285,15 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
     startScan,
     stopScan,
 
-    // Connection
+    // Connection (supports multiple devices)
     connectionState,
     connectedDevice,
+    connectedDevices,
+    connectionCount,
     connect,
+    connectMultiple,
     disconnect,
+    disconnectDevice,
 
     // Sync status
     isSynced,

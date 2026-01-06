@@ -250,3 +250,85 @@ export type ThumbStartState = 'idle' | 'ready' | 'running' | 'cancelled';
 
 // App State Types
 export type AppScreen = 'home' | 'session' | 'results' | 'settings' | 'history';
+
+// ============================================
+// Gate ROI & Scanline Detection Types
+// ============================================
+
+/**
+ * Gate setup orientation
+ * - 'horizontal': Camera perpendicular to track, athletes run left↔right
+ * - 'vertical': Camera along track, athletes run toward/away from camera
+ */
+export type GateOrientation = 'horizontal' | 'vertical';
+
+/**
+ * Direction athletes move through the gate
+ */
+export type RunDirection = 'left_to_right' | 'right_to_left' | 'toward_camera' | 'away_from_camera';
+
+/**
+ * Region of Interest for the finish line scanline
+ * All values normalized 0-1
+ */
+export interface GateROI {
+  /** Center position of the gate line (0-1, typically 0.5 for center) */
+  position: number;
+  /** Width of the detection strip (0-1, e.g., 0.05 = 5% of frame width) */
+  width: number;
+  /** Top boundary of detection area (0-1) */
+  top: number;
+  /** Bottom boundary of detection area (0-1) */
+  bottom: number;
+}
+
+/**
+ * Complete gate setup configuration
+ */
+export interface GateSetup {
+  /** How the camera is positioned relative to the track */
+  orientation: GateOrientation;
+  /** Direction athletes run through the frame */
+  runDirection: RunDirection;
+  /** The vertical scanline ROI for detection */
+  roi: GateROI;
+  /** Minimum motion intensity to trigger pose detection (0-1) */
+  motionThreshold: number;
+  /** Minimum confidence to count as valid detection (0-1) */
+  confidenceThreshold: number;
+}
+
+/**
+ * Motion detection result for the ROI
+ */
+export interface ROIMotionResult {
+  /** Was motion detected in the ROI? */
+  hasMotion: boolean;
+  /** Intensity of motion (0-1) */
+  intensity: number;
+  /** Bounding box of motion within ROI (normalized 0-1) */
+  motionBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  /** Timestamp of detection */
+  timestamp: number;
+}
+
+/**
+ * Gate crossing detection result
+ */
+export interface GateCrossingResult {
+  /** Was a crossing detected this frame? */
+  crossed: boolean;
+  /** Precise crossing timestamp (sub-frame interpolated) */
+  crossingTime: number;
+  /** Torso X position at crossing (normalized 0-1) */
+  crossingX: number;
+  /** Confidence of the detection (0-1) */
+  confidence: number;
+  /** Direction of crossing */
+  direction: 'entering' | 'exiting';
+}

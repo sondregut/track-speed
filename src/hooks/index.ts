@@ -9,3 +9,4 @@ export { useSoundDetection } from './useSoundDetection';
 export { useBluetoothSync } from './useBluetoothSync';
 export { useVisionPose } from './useVisionPose';
 export { useSeries } from './useSeries';
+export { useGateDetection } from './useGateDetection';

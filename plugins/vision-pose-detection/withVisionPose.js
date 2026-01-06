@@ -9,7 +9,12 @@ const { withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
-const FILES = ['VisionPoseFrameProcessor.swift', 'VisionPoseFrameProcessor.m'];
+const FILES = [
+  'VisionPoseFrameProcessor.swift',
+  'VisionPoseFrameProcessor.m',
+  'GhostGateProcessor.swift',
+  'GhostGateProcessor.m',
+];
 
 /**
  * Copy native files to ios directory during prebuild

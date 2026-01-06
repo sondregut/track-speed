@@ -5,13 +5,22 @@
  * motion by comparing against this reference. This dramatically
  * reduces processing time by focusing pose detection only on
  * regions with movement.
+ *
+ * Optimized for vertical scanline detection:
+ * - Camera perpendicular to track on tripod
+ * - Athletes run left→right or right→left through frame
+ * - Only monitors a thin vertical strip (the "gate line")
  */
+
+import type { GateROI, ROIMotionResult } from '../../types';
 
 export interface GhostGateConfig {
   calibrationFrames: number;
   sensitivity: number; // 0-100
   motionThreshold: number;
   updateInterval: number; // How often to update background (frames)
+  /** Optional ROI for focused scanline detection */
+  roi?: GateROI;
 }
 
 export interface MotionRegion {
@@ -356,6 +365,143 @@ export class GhostGate {
     this.calibrationFrames = [];
     this.backgroundModel = null;
     this.framesSinceUpdate = 0;
+  }
+
+  /**
+   * Set ROI for focused scanline detection
+   */
+  setROI(roi: GateROI): void {
+    this.config.roi = roi;
+  }
+
+  /**
+   * Get current ROI
+   */
+  getROI(): GateROI | undefined {
+    return this.config.roi;
+  }
+
+  /**
+   * Detect motion only within the ROI (vertical scanline)
+   * This is much faster than full-frame detection
+   *
+   * @param frame - Full frame ImageData
+   * @returns Motion result for the ROI only
+   */
+  detectMotionInROI(frame: ImageData): ROIMotionResult {
+    const roi = this.config.roi;
+    const timestamp = Date.now();
+
+    // If no ROI configured, fall back to center strip
+    const effectiveROI: GateROI = roi ?? {
+      position: 0.5,
+      width: 0.1,
+      top: 0.1,
+      bottom: 0.9,
+    };
+
+    // Calculate pixel bounds for the ROI
+    const roiLeft = Math.floor((effectiveROI.position - effectiveROI.width / 2) * frame.width);
+    const roiRight = Math.ceil((effectiveROI.position + effectiveROI.width / 2) * frame.width);
+    const roiTop = Math.floor(effectiveROI.top * frame.height);
+    const roiBottom = Math.ceil(effectiveROI.bottom * frame.height);
+
+    // Clamp to frame bounds
+    const left = Math.max(0, roiLeft);
+    const right = Math.min(frame.width, roiRight);
+    const top = Math.max(0, roiTop);
+    const bottom = Math.min(frame.height, roiBottom);
+
+    if (!this.isCalibrated || !this.backgroundModel) {
+      // Not calibrated - assume motion present
+      return {
+        hasMotion: true,
+        intensity: 1,
+        timestamp,
+      };
+    }
+
+    const threshold = this.calculateThreshold();
+    let motionSum = 0;
+    let pixelCount = 0;
+    let minMotionX = right;
+    let maxMotionX = left;
+    let minMotionY = bottom;
+    let maxMotionY = top;
+    let hasSignificantMotion = false;
+
+    // Only scan within the ROI - this is the key optimization
+    for (let y = top; y < bottom; y++) {
+      for (let x = left; x < right; x++) {
+        const idx = (y * frame.width + x) * 4;
+
+        // Calculate grayscale difference (fast luminance approximation)
+        const frameLum =
+          frame.data[idx] * 0.299 +
+          frame.data[idx + 1] * 0.587 +
+          frame.data[idx + 2] * 0.114;
+        const bgLum =
+          this.backgroundModel[idx] * 0.299 +
+          this.backgroundModel[idx + 1] * 0.587 +
+          this.backgroundModel[idx + 2] * 0.114;
+
+        const diff = Math.abs(frameLum - bgLum);
+
+        if (diff > threshold) {
+          motionSum += diff;
+          hasSignificantMotion = true;
+
+          // Track motion bounds
+          if (x < minMotionX) minMotionX = x;
+          if (x > maxMotionX) maxMotionX = x;
+          if (y < minMotionY) minMotionY = y;
+          if (y > maxMotionY) maxMotionY = y;
+        }
+        pixelCount++;
+      }
+    }
+
+    const intensity = pixelCount > 0 ? motionSum / (pixelCount * 255) : 0;
+    const hasMotion = intensity > 0.02; // 2% threshold for "motion detected"
+
+    const result: ROIMotionResult = {
+      hasMotion,
+      intensity,
+      timestamp,
+    };
+
+    // Add motion bounds if motion was detected
+    if (hasMotion && hasSignificantMotion) {
+      result.motionBounds = {
+        x: minMotionX / frame.width,
+        y: minMotionY / frame.height,
+        width: (maxMotionX - minMotionX) / frame.width,
+        height: (maxMotionY - minMotionY) / frame.height,
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Get ROI pixel bounds for a given frame size
+   * Useful for drawing the ROI overlay
+   */
+  getROIBounds(frameWidth: number, frameHeight: number): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null {
+    const roi = this.config.roi;
+    if (!roi) return null;
+
+    return {
+      x: Math.floor((roi.position - roi.width / 2) * frameWidth),
+      y: Math.floor(roi.top * frameHeight),
+      width: Math.ceil(roi.width * frameWidth),
+      height: Math.ceil((roi.bottom - roi.top) * frameHeight),
+    };
   }
 }
 

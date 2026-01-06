@@ -16,7 +16,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trackspeed.app",
-      "deploymentTarget": "17.0",
       "infoPlist": {
         "NSCameraUsageDescription": "Track Speed needs camera access to detect finish line crossings.",
         "NSMicrophoneUsageDescription": "Track Speed can use the microphone to detect starting gun sounds.",
@@ -82,7 +81,9 @@
       ],
       "expo-router",
       "react-native-ble-plx",
-      "./plugins/vision-pose-detection/withVisionPose"
+      "./plugins/vision-pose-detection/withVisionPose",
+      "expo-font",
+      "expo-asset"
     ],
     "extra": {
       "router": {},

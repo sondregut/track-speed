@@ -15,3 +15,12 @@ export {
   type MotionRegion,
   type CalibrationResult,
 } from './GhostGate';
+
+export {
+  ScanlineDetector,
+  getScanlineDetector,
+  resetScanlineDetector,
+  createDefaultGateSetup,
+  type ScanlineDetectorConfig,
+  type DetectorState,
+} from './ScanlineDetector';

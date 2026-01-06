@@ -1,30 +1,86 @@
 {
   "expo": {
-    "name": "velocity-gate-app",
-    "slug": "velocity-gate-app",
-    "version": "1.0.0",
+    "name": "Track Speed",
+    "slug": "track-speed",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "scheme": "trackspeed",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0F172A"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trackspeed.app",
+      "deploymentTarget": "17.0",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Track Speed uses the camera to detect when you cross the finish line.",
+        "NSMicrophoneUsageDescription": "Track Speed can detect starting gun sounds for precise timing.",
+        "NSLocalNetworkUsageDescription": "Track Speed uses the local network to sync timing data between multiple devices.",
+        "NSBluetoothAlwaysUsageDescription": "Track Speed uses Bluetooth to connect multiple phones for synchronized timing.",
+        "NSBluetoothPeripheralUsageDescription": "Track Speed uses Bluetooth to connect multiple phones for synchronized timing.",
+        "NSBonjourServices": [
+          "_trackspeed._tcp."
+        ],
+        "UIBackgroundModes": [
+          "audio",
+          "bluetooth-central",
+          "bluetooth-peripheral"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0F172A"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "package": "com.trackspeed.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Track Speed needs camera access to detect finish line crossings.",
+          "enableMicrophonePermission": true,
+          "microphonePermissionText": "Track Speed can use the microphone to detect starting gun sounds."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0",
+            "useFrameworks": "static"
+          },
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      "expo-router",
+      "react-native-ble-plx"
+    ]
   }
 }

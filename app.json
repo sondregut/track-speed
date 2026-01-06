@@ -18,8 +18,8 @@
       "bundleIdentifier": "com.trackspeed.app",
       "deploymentTarget": "17.0",
       "infoPlist": {
-        "NSCameraUsageDescription": "Track Speed uses the camera to detect when you cross the finish line.",
-        "NSMicrophoneUsageDescription": "Track Speed can detect starting gun sounds for precise timing.",
+        "NSCameraUsageDescription": "Track Speed needs camera access to detect finish line crossings.",
+        "NSMicrophoneUsageDescription": "Track Speed can use the microphone to detect starting gun sounds.",
         "NSLocalNetworkUsageDescription": "Track Speed uses the local network to sync timing data between multiple devices.",
         "NSBluetoothAlwaysUsageDescription": "Track Speed uses Bluetooth to connect multiple phones for synchronized timing.",
         "NSBluetoothPeripheralUsageDescription": "Track Speed uses Bluetooth to connect multiple phones for synchronized timing.",
@@ -30,7 +30,8 @@
           "audio",
           "bluetooth-central",
           "bluetooth-peripheral"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -80,7 +81,14 @@
         }
       ],
       "expo-router",
-      "react-native-ble-plx"
-    ]
+      "react-native-ble-plx",
+      "./plugins/vision-pose-detection/withVisionPose"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fcc1a90d-c9f0-4d92-a36c-cc9a8ea83c45"
+      }
+    }
   }
 }

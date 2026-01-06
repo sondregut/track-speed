@@ -2,11 +2,13 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { colors, spacing, borderRadius, typography } from '../constants/theme';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { spacing, borderRadius, typography, darkColors } from '../constants/theme';
+import { useTheme } from '../contexts';
 import { CameraPreview, GateLine, PoseOverlay } from '../components/camera';
 import { TimerDisplay, StartButton, ResultCard } from '../components/timing';
 import { Header, IconButton, Button } from '../components/ui';
-import { useTimer, useKeepAwake, useHaptics, useSound, useAutoTiming, useSyncConnection, useSoundDetection } from '../hooks';
+import { useTimer, useKeepAwake, useHaptics, useSound, useAutoTiming, useSyncConnection, useSoundDetection, useVisionPose } from '../hooks';
 import { useSessionStore, useSettingsStore, useTimingStore } from '../stores';
 import { Athlete, TimingResult } from '../types';
 
@@ -18,6 +20,7 @@ interface TimerScreenProps {
 
 export function TimerScreen({ navigation }: TimerScreenProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme(); // Use themed colors for indicators
   const { currentSession, athletes, selectedAthleteId, selectAthlete } = useSessionStore();
   const { timing: timingSettings } = useSettingsStore();
   const { results, resetTimer } = useTimingStore();
@@ -33,8 +36,47 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   // Sound detection for clap/gun start
   const soundDetection = useSoundDetection({ threshold: 0.75 });
 
-  // Multi-device sync
+  // Multi-device sync (declare before handleGateCrossing which uses it)
   const sync = useSyncConnection({ deviceName: Platform.OS === 'ios' ? 'iPhone' : 'Android' });
+
+  // Track timer start time for Vision pose detection
+  const timerStartTimeRef = useRef<number | null>(null);
+
+  // Vision pose detection callback - triggers when torso crosses gate
+  const handleGateCrossing = useCallback((crossingTimeMs: number, confidence: number) => {
+    if (manualTimer.state !== 'running') return;
+
+    // Calculate elapsed time from start
+    const startTime = timerStartTimeRef.current;
+    if (!startTime) return;
+
+    const elapsedMs = crossingTimeMs - startTime;
+
+    // Auto-stop the timer
+    trigger('success');
+    play('stop');
+
+    // Broadcast to connected devices
+    if (sync.isSynced && sync.deviceRole === 'finish') {
+      sync.sendStop(elapsedMs);
+    }
+
+    manualTimer.stop({
+      time_ms: elapsedMs,
+      source: 'auto_detected',
+      confidence: confidence,
+      startMethod: timingSettings.defaultStartMethod,
+      frameNumber: 0,
+    });
+  }, [manualTimer, trigger, play, sync, timingSettings.defaultStartMethod]);
+
+  // Native iOS Vision pose detection (gate at 50% = center of screen)
+  const visionPose = useVisionPose({
+    gateLineX: 0.5,
+    minConfidence: 0.5,
+    enabled: timingSettings.autoDetectionEnabled && manualTimer.state === 'running',
+    onGateCrossing: handleGateCrossing,
+  });
   const remoteStartTime = useRef<number | null>(null);
   const [splitTimes, setSplitTimes] = useState<number[]>([]);
 
@@ -66,14 +108,19 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     return resultsByAthlete;
   }, [results]);
 
-  // Use auto timing when enabled and ready
-  const useAutoDetection = timingSettings.autoDetectionEnabled && autoTiming.isReady;
+  // Use native Vision pose detection when available, fall back to mock auto-timing
+  const useNativeVision = visionPose.isAvailable && timingSettings.autoDetectionEnabled;
+  const useMockAutoDetection = !useNativeVision && timingSettings.autoDetectionEnabled && autoTiming.isReady;
   const useSoundStart = currentSession?.startMethod === 'sound_detection';
 
-  // Select which timing source to use
-  const state = useAutoDetection ? autoTiming.timerState : manualTimer.state;
-  const elapsedTime = useAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
+  // Always use manual timer for state - Vision pose just triggers the stop
+  const state = useMockAutoDetection ? autoTiming.timerState : manualTimer.state;
+  const elapsedTime = useMockAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
   const isRunning = state === 'running';
+
+  // Vision Camera setup
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('back');
 
   const [cameraReady, setCameraReady] = useState(false);
   const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
@@ -151,42 +198,54 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const lastResult = results.length > 0 ? results[results.length - 1] : null;
 
   const handleStart = useCallback(() => {
+    // Record start time for Vision pose detection
+    timerStartTimeRef.current = Date.now();
+
+    // Reset Vision pose tracking
+    if (useNativeVision) {
+      visionPose.reset();
+    }
+
     // Broadcast start to connected devices (if this is the start gate)
     if (sync.isSynced && sync.deviceRole === 'start') {
       sync.sendStart();
     }
 
-    if (useAutoDetection) {
+    if (useMockAutoDetection) {
       autoTiming.start();
     } else {
       trigger('medium');
       play('start');
       manualTimer.start(timingSettings.defaultStartMethod);
     }
-  }, [useAutoDetection, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
+  }, [useNativeVision, useMockAutoDetection, visionPose, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
 
+  // Manual stop - always available as override even when auto-detection is on
   const handleStop = useCallback(() => {
-    const stopTime = useAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
+    const stopTime = useMockAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
 
     // Broadcast stop to connected devices (if this is the finish gate)
     if (sync.isSynced && sync.deviceRole === 'finish') {
       sync.sendStop(stopTime);
     }
 
-    if (useAutoDetection) {
+    if (useMockAutoDetection) {
       autoTiming.stop();
     } else {
       trigger('success');
       play('stop');
       manualTimer.stop({
         time_ms: stopTime,
-        source: sync.isSynced ? 'auto_detected' : 'manual_only',
+        source: useNativeVision ? 'manual_override' : (sync.isSynced ? 'auto_detected' : 'manual_only'),
         confidence: null,
         startMethod: timingSettings.defaultStartMethod,
         frameNumber: 0,
       });
     }
-  }, [useAutoDetection, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
+
+    // Clear start time
+    timerStartTimeRef.current = null;
+  }, [useNativeVision, useMockAutoDetection, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
 
   const handleReset = useCallback(() => {
     trigger('light');
@@ -196,13 +255,20 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       sync.sendReset();
     }
 
-    if (useAutoDetection) {
+    if (useMockAutoDetection) {
       autoTiming.reset();
     }
+
+    // Reset Vision pose tracking
+    if (useNativeVision) {
+      visionPose.reset();
+    }
+
     manualTimer.reset();
     remoteStartTime.current = null;
+    timerStartTimeRef.current = null;
     setSplitTimes([]);
-  }, [trigger, useAutoDetection, autoTiming, manualTimer, sync]);
+  }, [trigger, useNativeVision, useMockAutoDetection, visionPose, autoTiming, manualTimer, sync]);
 
   const handleCameraReady = useCallback(() => {
     setCameraReady(true);
@@ -239,13 +305,47 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     }
   }, [selectAthlete, state, handleReset]);
 
+  // Request camera permission if needed
+  useEffect(() => {
+    if (!hasPermission) {
+      requestPermission();
+    }
+  }, [hasPermission, requestPermission]);
+
   return (
     <View style={styles.container}>
-      {/* Camera Background */}
-      <CameraPreview onCameraReady={handleCameraReady}>
-        {/* Gate Line Overlay */}
-        <GateLine position={0.7} />
-      </CameraPreview>
+      {/* Camera Background - Use Vision Camera when native detection available */}
+      {useNativeVision && device ? (
+        <View style={StyleSheet.absoluteFill}>
+          <Camera
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={true}
+            frameProcessor={visionPose.frameProcessor}
+            fps={60}
+            onInitialized={handleCameraReady}
+          />
+          {/* Gate Line Overlay - at 50% (center) for Vision pose */}
+          <GateLine position={0.5} />
+          {/* Show torso position indicator when detected */}
+          {visionPose.isDetected && visionPose.torsoCenter && (
+            <View
+              style={[
+                styles.torsoIndicator,
+                {
+                  left: `${visionPose.torsoCenter.x * 100}%`,
+                  top: `${visionPose.torsoCenter.y * 100}%`,
+                },
+              ]}
+            />
+          )}
+        </View>
+      ) : (
+        <CameraPreview onCameraReady={handleCameraReady}>
+          {/* Gate Line Overlay */}
+          <GateLine position={0.7} />
+        </CameraPreview>
+      )}
 
       {/* Header Overlay */}
       <Header
@@ -361,8 +461,29 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
             </View>
           )}
 
-          {/* Auto-detection indicator */}
-          {timingSettings.autoDetectionEnabled && (
+          {/* Vision Pose Detection indicator (native iOS) */}
+          {useNativeVision && (
+            <View style={styles.autoIndicator}>
+              <View style={[
+                styles.autoIndicatorDot,
+                { backgroundColor: visionPose.isDetected ? colors.timing.ready : colors.gray[500] }
+              ]} />
+              <Text style={styles.autoIndicatorText}>
+                {visionPose.isDetected
+                  ? `Torso Detected (${visionPose.confidence.toFixed(0)}%)`
+                  : 'Waiting for athlete...'}
+              </Text>
+              {visionPose.fps > 0 && (
+                <Text style={styles.fpsText}>{visionPose.fps} fps</Text>
+              )}
+              {visionPose.processingTimeMs > 0 && (
+                <Text style={styles.fpsText}>{visionPose.processingTimeMs.toFixed(1)}ms</Text>
+              )}
+            </View>
+          )}
+
+          {/* Fallback Auto-detection indicator (mock) */}
+          {useMockAutoDetection && (
             <View style={styles.autoIndicator}>
               <View style={[
                 styles.autoIndicatorDot,
@@ -415,10 +536,11 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   );
 }
 
+// Camera overlay screens always use dark colors for visibility
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: darkColors.black,
   },
   timerOverlay: {
     position: 'absolute',
@@ -438,7 +560,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
     alignItems: 'center',
     minWidth: 280,
-    backgroundColor: colors.black + 'B0',
+    backgroundColor: darkColors.black + 'B0',
   },
   controls: {
     marginTop: spacing.lg,
@@ -457,7 +579,7 @@ const styles = StyleSheet.create({
     height: 24,
     borderLeftWidth: 2,
     borderBottomWidth: 2,
-    borderColor: colors.white,
+    borderColor: darkColors.white,
     transform: [{ rotate: '45deg' }],
   },
   statusIndicators: {
@@ -471,7 +593,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    backgroundColor: colors.black + '80',
+    backgroundColor: darkColors.black + '80',
     borderRadius: borderRadius.full,
   },
   autoIndicatorDot: {
@@ -482,16 +604,16 @@ const styles = StyleSheet.create({
   },
   autoIndicatorText: {
     fontSize: typography.fontSize.sm,
-    color: colors.white,
+    color: darkColors.white,
   },
   fpsText: {
     fontSize: typography.fontSize.xs,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
     marginLeft: spacing.sm,
   },
   splitContainer: {
     marginTop: spacing.md,
-    backgroundColor: colors.black + '80',
+    backgroundColor: darkColors.black + '80',
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -505,12 +627,12 @@ const styles = StyleSheet.create({
   },
   splitLabel: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
   },
   splitTime: {
     fontSize: typography.fontSize.base,
     fontWeight: '600' as const,
-    color: colors.white,
+    color: darkColors.white,
   },
   // Current athlete styles
   currentAthleteContainer: {
@@ -518,19 +640,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    backgroundColor: colors.black + '80',
+    backgroundColor: darkColors.black + '80',
     borderRadius: borderRadius.lg,
   },
   currentAthleteLabel: {
     fontSize: typography.fontSize.xs,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   currentAthleteName: {
     fontSize: typography.fontSize.xl,
     fontWeight: '700' as const,
-    color: colors.white,
+    color: darkColors.white,
     marginTop: spacing.xs,
   },
   // Action buttons (retry/next)
@@ -544,17 +666,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.black + '80',
+    backgroundColor: darkColors.black + '80',
     borderRadius: borderRadius.full,
     gap: spacing.sm,
   },
   actionButtonIcon: {
     fontSize: typography.fontSize.lg,
-    color: colors.white,
+    color: darkColors.white,
   },
   actionButtonText: {
     fontSize: typography.fontSize.sm,
-    color: colors.white,
+    color: darkColors.white,
   },
   // Audio level indicator
   audioLevelBar: {
@@ -562,7 +684,22 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     height: 2,
-    backgroundColor: colors.timing.ready,
+    backgroundColor: darkColors.timing.ready,
     borderRadius: 1,
+  },
+  // Torso position indicator for Vision pose detection
+  torsoIndicator: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: darkColors.timing.ready,
+    borderWidth: 3,
+    borderColor: darkColors.white,
+    transform: [{ translateX: -10 }, { translateY: -10 }],
+    shadowColor: darkColors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
   },
 });

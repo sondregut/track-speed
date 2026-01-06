@@ -158,19 +158,19 @@ export const darkColors = {
     900: '#1E3A8A',
   },
 
-  // Gray scale
+  // Gray scale (adjusted for navy/blue-gray theme)
   gray: {
-    50: '#F8FAFC',
+    50: '#FFFFFF',
     100: '#F1F5F9',
     200: '#E2E8F0',
     300: '#CBD5E1',
     400: '#94A3B8',
     500: '#64748B',
-    600: '#475569',
-    700: '#334155',
-    800: '#1E293B',
-    900: '#0F172A',
-    950: '#020617',
+    600: '#4B5563',
+    700: '#374151',
+    800: '#2C3544',
+    900: '#222937',
+    950: '#1A1F2B',
   },
 
   // Semantic colors
@@ -206,25 +206,25 @@ export const darkColors = {
   white: '#FFFFFF',
   black: '#000000',
 
-  // Semantic shortcuts for dark mode
+  // Semantic shortcuts for dark mode (navy/blue-gray with white text)
   background: {
-    primary: '#0F172A',
-    secondary: '#1E293B',
-    tertiary: '#334155',
+    primary: '#222937',
+    secondary: '#2C3544',
+    tertiary: '#374151',
   },
   text: {
     primary: '#FFFFFF',
-    secondary: '#94A3B8',
-    tertiary: '#64748B',
-    inverse: '#0F172A',
+    secondary: '#E2E8F0',
+    tertiary: '#94A3B8',
+    inverse: '#222937',
   },
   border: {
-    primary: '#334155',
-    secondary: '#475569',
+    primary: '#374151',
+    secondary: '#4B5563',
   },
   card: {
-    background: '#1E293B',
-    border: '#334155',
+    background: '#2C3544',
+    border: '#374151',
   },
 } as const;
 

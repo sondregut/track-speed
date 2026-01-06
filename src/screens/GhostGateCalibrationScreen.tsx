@@ -10,7 +10,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
-import { colors, spacing, typography, borderRadius } from '../constants/theme';
+import { spacing, typography, borderRadius, darkColors } from '../constants/theme';
+import { useTheme } from '../contexts';
 import { CameraPreview, GateLine } from '../components/camera';
 import { Header, Button, Card, GlassCard } from '../components/ui';
 import { useSettingsStore } from '../stores';
@@ -20,6 +21,7 @@ type CalibrationStep = 'intro' | 'positioning' | 'calibrating' | 'complete' | 'e
 export function GhostGateCalibrationScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme(); // Use themed colors for quality indicators
   const { ghostGate, updateGhostGate } = useSettingsStore();
 
   // Use Glass UI on iOS 26+
@@ -251,14 +253,15 @@ export function GhostGateCalibrationScreen() {
   );
 }
 
+// Camera overlay screens always use dark colors for visibility
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: darkColors.black,
   },
   closeButton: {
     fontSize: 24,
-    color: colors.white,
+    color: darkColors.white,
     fontWeight: '300',
   },
   contentContainer: {
@@ -279,13 +282,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.fontSize['3xl'],
     fontWeight: typography.fontWeight.bold as '700',
-    color: colors.white,
+    color: darkColors.white,
     textAlign: 'center',
     marginBottom: spacing.md,
   },
   description: {
     fontSize: typography.fontSize.lg,
-    color: colors.gray[300],
+    color: darkColors.gray[300],
     textAlign: 'center',
     marginBottom: spacing.xl,
     lineHeight: 26,
@@ -296,7 +299,7 @@ const styles = StyleSheet.create({
   tipTitle: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold as '600',
-    color: colors.white,
+    color: darkColors.white,
     marginBottom: spacing.sm,
   },
   tipList: {
@@ -304,7 +307,7 @@ const styles = StyleSheet.create({
   },
   tipItem: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
   },
   buttonContainer: {
     padding: spacing.lg,
@@ -319,17 +322,17 @@ const styles = StyleSheet.create({
   instructionTitle: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold as '700',
-    color: colors.white,
+    color: darkColors.white,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
   instructionText: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[300],
+    color: darkColors.gray[300],
     textAlign: 'center',
   },
   captureButton: {
-    backgroundColor: colors.timing.ready,
+    backgroundColor: darkColors.timing.ready,
   },
   overlayCenter: {
     flex: 1,
@@ -340,12 +343,12 @@ const styles = StyleSheet.create({
   calibratingTitle: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold as '700',
-    color: colors.white,
+    color: darkColors.white,
     marginBottom: spacing.sm,
   },
   calibratingText: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
     marginBottom: spacing.xl,
   },
   progressContainer: {
@@ -355,19 +358,19 @@ const styles = StyleSheet.create({
   progressTrack: {
     width: '100%',
     height: 8,
-    backgroundColor: colors.gray[700],
+    backgroundColor: darkColors.gray[700],
     borderRadius: borderRadius.full,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.primary[500],
+    backgroundColor: darkColors.primary[500],
     borderRadius: borderRadius.full,
   },
   progressText: {
     marginTop: spacing.sm,
     fontSize: typography.fontSize.lg,
-    color: colors.white,
+    color: darkColors.white,
     fontWeight: typography.fontWeight.semibold as '600',
   },
   completeContent: {
@@ -382,19 +385,19 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.success[500],
+    backgroundColor: darkColors.success[500],
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
   },
   successIconText: {
     fontSize: 40,
-    color: colors.white,
+    color: darkColors.white,
   },
   completeTitle: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold as '700',
-    color: colors.white,
+    color: darkColors.white,
     marginBottom: spacing.lg,
   },
   qualityCard: {
@@ -403,7 +406,7 @@ const styles = StyleSheet.create({
   },
   qualityLabel: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
     textTransform: 'uppercase',
     marginBottom: spacing.xs,
   },
@@ -415,7 +418,7 @@ const styles = StyleSheet.create({
   qualityBar: {
     width: '100%',
     height: 8,
-    backgroundColor: colors.gray[700],
+    backgroundColor: darkColors.gray[700],
     borderRadius: borderRadius.full,
     overflow: 'hidden',
     marginBottom: spacing.xs,
@@ -426,11 +429,11 @@ const styles = StyleSheet.create({
   },
   qualityScore: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
   },
   completeDescription: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[400],
+    color: darkColors.gray[400],
     textAlign: 'center',
     lineHeight: 22,
   },

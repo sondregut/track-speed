@@ -611,6 +611,77 @@ This file tracks all development progress and completed work. **Update this log 
 
 ---
 
+### Session 9: Native iOS Vision Pose Detection
+
+#### Completed Tasks
+
+**1. Removed TensorFlow.js**
+- Uninstalled @tensorflow/tfjs, @tensorflow/tfjs-react-native, @tensorflow-models/pose-detection
+- These had peer dependency conflicts and were slower (~15-30fps)
+
+**2. Created Native iOS Vision Frame Processor Plugin**
+- `plugins/vision-pose-detection/ios/VisionPoseFrameProcessor.swift`
+  - Uses `VNDetectHumanBodyPoseRequest` for pose detection
+  - Extracts 4 torso landmarks (shoulders + hips) per World Athletics Rule 164
+  - Calculates lean-adaptive torso center for sprint finish detection
+  - Returns normalized coordinates (0-1) with confidence scores
+- `plugins/vision-pose-detection/ios/VisionPoseFrameProcessor.m`
+  - Registers plugin with VisionCamera as "detectPose"
+- `plugins/vision-pose-detection/withVisionPose.js`
+  - Expo config plugin to copy native files during prebuild
+
+**3. Created TypeScript Integration**
+- `src/lib/pose/VisionPoseDetector.ts`
+  - Type definitions for pose results
+  - `isVisionPoseAvailable()` - Check if native detection available
+  - `detectGateCrossing()` - Detect when torso crosses gate line
+  - `interpolateCrossingTime()` - Sub-frame precision timing
+  - `calculateTorsoVelocity()` - Velocity from torso movement
+- `src/hooks/useVisionPose.ts`
+  - Complete React hook for pose detection flow
+  - Manages frame processing, tracking, gate crossing detection
+  - Calls `onGateCrossing` callback with precise crossing time
+
+**4. Updated Configuration**
+- Added plugin to app.json plugins array
+- Updated exports in src/lib/pose/index.ts
+- Updated exports in src/hooks/index.ts
+
+#### How Auto-Detection Works
+
+```
+Camera (60-120fps) → Vision Framework → Torso Landmarks → Gate Crossing → Timer Stop
+                     VNDetectHuman      (shoulders+hips)   (sub-frame
+                     BodyPoseRequest                        interpolation)
+```
+
+1. **Camera captures frames** via react-native-vision-camera
+2. **Vision framework detects pose** - finds 4 torso points
+3. **Calculate torso center** - weighted for sprint lean angle
+4. **Track gate crossing** - when center crosses virtual "gate line"
+5. **Sub-frame interpolation** - precise timing between frames
+
+#### Files Created
+- `plugins/vision-pose-detection/ios/VisionPoseFrameProcessor.swift`
+- `plugins/vision-pose-detection/ios/VisionPoseFrameProcessor.m`
+- `plugins/vision-pose-detection/withVisionPose.js`
+- `src/lib/pose/VisionPoseDetector.ts`
+- `src/hooks/useVisionPose.ts`
+
+#### Files Modified
+- `package.json` - Removed TensorFlow.js packages
+- `app.json` - Added vision-pose-detection plugin
+- `src/lib/pose/index.ts` - Export VisionPoseDetector
+- `src/hooks/index.ts` - Export useVisionPose
+
+#### Next Steps
+1. Run `npx expo prebuild --platform ios` to generate native project
+2. Run `npx expo run:ios` to build development client
+3. Test pose detection on real iOS device
+4. Integrate useVisionPose with TimerScreen
+
+---
+
 ## Template for Future Entries
 
 ```markdown

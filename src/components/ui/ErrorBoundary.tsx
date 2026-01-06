@@ -1,6 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode, useContext } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { spacing, typography, borderRadius } from '../../constants/theme';
+import { spacing, typography, borderRadius, darkColors } from '../../constants/theme';
 
 // Import theme context directly to avoid circular deps
 import ThemeContext from '../../contexts/ThemeContext';
@@ -25,14 +25,8 @@ function ErrorDisplay({
   onRetry: () => void;
 }) {
   const theme = useContext(ThemeContext);
-  const colors = theme?.colors || {
-    gray: { 50: '#f9fafb', 500: '#6b7280', 900: '#111827' },
-    error: { 100: '#fee2e2', 500: '#ef4444' },
-    primary: { 500: '#3b82f6' },
-    white: '#ffffff',
-    background: { secondary: '#f9fafb' },
-    text: { primary: '#111827', secondary: '#6b7280' },
-  };
+  // Use theme colors or fall back to darkColors (matching dark mode theme)
+  const colors = theme?.colors || darkColors;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background.secondary }]}>

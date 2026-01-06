@@ -754,6 +754,39 @@ Camera (60-120fps) → Vision Framework → Torso Landmarks → Gate Crossing �
 
 ---
 
+### Session 11: EAS Build Fixes
+
+#### Completed Tasks
+
+**1. Resolved VisionCamera + Reanimated Conflict**
+- VisionCamera v4.x requires New Architecture DISABLED
+- Reanimated v4.x requires New Architecture ENABLED
+- Solution: Downgrade Reanimated to v3.16.0 (works without new arch)
+
+**2. Fixed expo-doctor Issues**
+- Added missing peer dependencies: expo-font, expo-asset, expo-constants, expo-linking
+- Removed invalid `deploymentTarget` from ios section (already configured in expo-build-properties)
+- Fixed react version to match Expo SDK 54 (19.1.0)
+
+**3. Build Configuration**
+- `newArchEnabled: false` for VisionCamera compatibility
+- deploymentTarget configured only in expo-build-properties plugin
+
+#### Files Modified
+- `package.json` - Downgraded reanimated, added peer deps, fixed react
+- `package-lock.json` - Updated dependencies
+- `app.json` - Removed duplicate deploymentTarget, newArchEnabled: false
+
+#### Build Status
+- TypeScript: Passes (`npx tsc --noEmit`)
+- Ready for EAS build retry
+
+#### Notes
+- VisionCamera v5 (with new arch support) not yet released
+- When v5 releases, can re-enable new architecture and upgrade Reanimated back to v4
+
+---
+
 ## Template for Future Entries
 
 ```markdown

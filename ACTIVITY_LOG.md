@@ -682,6 +682,78 @@ Camera (60-120fps) → Vision Framework → Torso Landmarks → Gate Crossing �
 
 ---
 
+### Session 10: Multi-Device Sync & Series Training
+
+#### Completed Tasks
+
+**1. Dark Mode Theme Update**
+- Updated dark mode background to navy/blue-gray (#222937)
+- White text for high contrast
+- Updated all screens to use `useTheme` hook
+- Camera overlay screens (Timer, GhostGate) use fixed dark colors for visibility
+
+**2. Bluetooth Multi-Device Support**
+- Changed `connectedDevice` to `connectedDevices` Map (supports 5 simultaneous)
+- Added `connectMultiple()` to connect to multiple devices at once
+- Added `disconnectDevice()` to disconnect specific device
+- Broadcast timing events to all connected devices in parallel
+- Added `getDeviceByRole()` to find device by role
+- Added `getConnectionCount()` and `isConnected()` helpers
+
+**3. Series/Interval Training Mode**
+- Created types: `SeriesConfig`, `SeriesState`, `SeriesRepResult`, `SeriesSummary`
+- Added `sessionType: 'series'` to Session type
+- Created `useSeries` hook with:
+  - Set and rep tracking
+  - Rest countdown timers (between reps and sets)
+  - Auto-advance between reps
+  - Series summary statistics (avg, best, worst, consistency)
+- Created `SeriesSetupScreen` with:
+  - Quick presets (Sprint Training, Speed Endurance, Acceleration Work)
+  - Custom sets, reps, distance configuration
+  - Adjustable rest periods
+  - Target time setting
+  - Auto-advance toggle
+  - Session summary preview
+- Added "Series Training" button to HomeScreen
+
+**4. Documentation**
+- Created `ROADMAP.md` with comprehensive feature checklist
+- Tracks completed vs pending features across all phases
+
+**5. Build Fixes**
+- Fixed Vision pose Xcode plugin path (uses `${projectName}/${fileName}`)
+- Fixed TypeScript navigation types in SeriesSetupScreen
+
+#### Files Created
+- `ROADMAP.md` - Feature tracking document
+- `src/hooks/useSeries.ts` - Series state management hook
+- `src/screens/SeriesSetupScreen.tsx` - Series configuration UI
+
+#### Files Modified
+- `src/constants/theme.ts` - Dark mode colors (#222937 background)
+- `src/lib/sync/BluetoothSync.ts` - Multi-device support
+- `src/hooks/useBluetoothSync.ts` - Expose multi-device methods
+- `src/types/index.ts` - Series types
+- `src/screens/HomeScreen.tsx` - Series Training button
+- `src/screens/TimerScreen.tsx` - Theme colors
+- `src/screens/GhostGateCalibrationScreen.tsx` - Theme colors
+- `src/components/ui/ErrorBoundary.tsx` - Use darkColors fallback
+- `App.tsx` - SeriesSetup route
+- `plugins/vision-pose-detection/withVisionPose.js` - Fixed Xcode paths
+
+#### TypeScript Status
+- All TypeScript errors resolved
+- `npx tsc --noEmit` passes cleanly
+- Expo bundle exports successfully
+
+#### Next Steps
+1. Integrate series mode into TimerScreen (rest countdown UI, auto-advance)
+2. Test on real iOS device with development build
+3. Complete remaining ROADMAP items
+
+---
+
 ## Template for Future Entries
 
 ```markdown

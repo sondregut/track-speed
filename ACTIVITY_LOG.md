@@ -787,6 +787,38 @@ Camera (60-120fps) → Vision Framework → Torso Landmarks → Gate Crossing �
 
 ---
 
+### Session 12: EAS Build Fix - Reanimated v4 Upgrade
+
+#### Completed Tasks
+
+**1. Fixed 'folly/coro/Coroutine.h' Build Error**
+- Root cause: `react-native-reanimated` v3.16.7 incompatible with Expo SDK 54
+- Upgraded to `react-native-reanimated` v4.1.1 (required for SDK 54)
+
+**2. Updated Expo Dependencies**
+- `expo`: 54.0.30 → 54.0.31
+- `react-native-reanimated`: 3.16.7 → 4.1.1
+
+**3. Added Babel Configuration**
+- Created `babel.config.js` with `react-native-reanimated/plugin`
+- Required for worklet transformation with Vision Camera frame processor
+
+#### Files Changed
+- `package.json` - Updated expo and react-native-reanimated versions
+- `package-lock.json` - Updated dependency tree
+- `babel.config.js` - NEW: Added reanimated babel plugin
+
+#### Build Status
+- `npx expo install --check` passes (all dependencies compatible)
+- Ready for EAS build retry
+
+#### Notes
+- Session 11 suggested downgrading Reanimated to v3, but that caused the folly/coro build error
+- The correct fix is upgrading to v4.1.1 as required by Expo SDK 54
+- VisionCamera v4.x works with Reanimated v4.x when using `runOnJS` pattern
+
+---
+
 ## Template for Future Entries
 
 ```markdown

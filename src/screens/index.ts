@@ -9,3 +9,5 @@ export { GhostGateCalibrationScreen } from './GhostGateCalibrationScreen';
 export { AthleteListScreen } from './AthleteListScreen';
 export { ResultDetailScreen } from './ResultDetailScreen';
 export { DeviceSyncScreen } from './DeviceSyncScreen';
+export { PoseTestScreen } from './PoseTestScreen';
+export { CrossingReviewScreen } from './CrossingReviewScreen';

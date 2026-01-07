@@ -34,7 +34,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const autoTiming = useAutoTiming(0.7); // Gate at 70% of screen height
 
   // Sound detection for clap/gun start
-  const soundDetection = useSoundDetection({ threshold: 0.25 });
+  const soundDetection = useSoundDetection({ threshold: 0.50 });
 
   // Multi-device sync (declare before handleGateCrossing which uses it)
   const sync = useSyncConnection({ deviceName: Platform.OS === 'ios' ? 'iPhone' : 'Android' });
@@ -123,8 +123,11 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       startMethod: currentSession?.startMethod,
       useSoundStart,
       timerState: state,
+      useNativeVision,
+      visionAvailable: visionPose.isAvailable,
+      autoDetectionEnabled: timingSettings.autoDetectionEnabled,
     });
-  }, [currentSession, useSoundStart, state]);
+  }, [currentSession, useSoundStart, state, useNativeVision, visionPose.isAvailable, timingSettings.autoDetectionEnabled]);
   const elapsedTime = useMockAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
   const isRunning = state === 'running';
 
@@ -366,6 +369,8 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
             device={device}
             format={format}
             isActive={true}
+            video={true}
+            pixelFormat="yuv"
             frameProcessor={visionPose.frameProcessor}
             fps={targetFps}
             onInitialized={handleCameraReady}

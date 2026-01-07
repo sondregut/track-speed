@@ -3,6 +3,10 @@
  *
  * Uses Bluetooth Low Energy for device discovery and connection.
  * Primary sync method - more reliable than WiFi for track environments.
+ *
+ * Supports two modes:
+ * - Host mode: Advertises as BLE peripheral, other devices connect to this device
+ * - Client mode: Scans for and connects to host device
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -14,6 +18,9 @@ import {
   type BluetoothDeviceRole,
   type BluetoothTimingEvent,
   type SyncResult,
+  getBLEPeripheral,
+  type BLEPeripheral,
+  type SyncRequest,
 } from '../lib/sync';
 
 // Re-export types for consumers
@@ -21,9 +28,13 @@ export type ConnectionState = BluetoothConnectionState;
 export type DeviceRole = BluetoothDeviceRole;
 export type TimingEvent = BluetoothTimingEvent;
 
+// Session mode - determines BLE role
+export type SessionMode = 'host' | 'client' | 'none';
+
 interface UseBluetoothSyncOptions {
   deviceName?: string;
   autoScan?: boolean;
+  sessionMode?: SessionMode;  // New: host = advertise, client = scan
 }
 
 interface UseBluetoothSyncReturn {
@@ -32,7 +43,17 @@ interface UseBluetoothSyncReturn {
   hasPermissions: boolean;
   requestPermissions: () => Promise<boolean>;
 
-  // Device discovery
+  // Session mode (host = advertise, client = scan)
+  sessionMode: SessionMode;
+  setSessionMode: (mode: SessionMode) => void;
+
+  // Host mode (advertising/peripheral)
+  isAdvertising: boolean;
+  startHostSession: () => Promise<boolean>;
+  stopHostSession: () => Promise<void>;
+  connectedClientCount: number;  // Number of clients connected to us as host
+
+  // Client mode (scanning/central) - Device discovery
   isScanning: boolean;
   discoveredDevices: BluetoothDevice[];
   startScan: () => Promise<void>;
@@ -71,7 +92,7 @@ interface UseBluetoothSyncReturn {
 }
 
 export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBluetoothSyncReturn {
-  const { deviceName = 'TrackSpeed', autoScan = false } = options;
+  const { deviceName = 'TrackSpeed', autoScan = false, sessionMode: initialSessionMode = 'none' } = options;
 
   // State
   const [isBluetoothAvailable, setIsBluetoothAvailable] = useState(false);
@@ -87,12 +108,18 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
   const [gateDistance, setGateDistanceState] = useState<number | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
 
+  // Host mode state
+  const [sessionMode, setSessionModeState] = useState<SessionMode>(initialSessionMode);
+  const [isAdvertising, setIsAdvertising] = useState(false);
+  const [connectedClientCount, setConnectedClientCount] = useState(0);
+
   // Derived state
   const connectedDevice = connectedDevices.length > 0 ? connectedDevices[0] : null;
   const connectionCount = connectedDevices.length;
 
   // Refs
   const bluetoothSync = useRef<BluetoothSync | null>(null);
+  const blePeripheral = useRef<BLEPeripheral | null>(null);
 
   // Initialize Bluetooth
   useEffect(() => {
@@ -159,8 +186,49 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
 
     initBluetooth();
 
+    // Initialize BLE peripheral for host mode
+    const initPeripheral = async () => {
+      try {
+        const peripheral = getBLEPeripheral();
+        if (peripheral.isAvailable) {
+          blePeripheral.current = peripheral;
+
+          // Setup peripheral callbacks
+          peripheral.setOnCentralConnected(() => {
+            setConnectedClientCount((prev) => prev + 1);
+          });
+
+          peripheral.setOnCentralDisconnected(() => {
+            setConnectedClientCount((prev) => Math.max(0, prev - 1));
+          });
+
+          peripheral.setOnSyncRequest((request: SyncRequest) => {
+            // Handle sync request from client - respond with server timestamps
+            if (request.t1 !== undefined && request.t2 !== undefined) {
+              peripheral.sendSyncResponse(request.t1, request.t2, request.sequenceNumber);
+            }
+          });
+
+          peripheral.setOnTimingEvent((event) => {
+            setLastTimingEvent(event);
+          });
+
+          peripheral.setOnError((message) => {
+            setError(new Error(message));
+          });
+
+          console.log('useBluetoothSync: BLE Peripheral available');
+        }
+      } catch (err) {
+        console.warn('useBluetoothSync: Peripheral init failed:', err);
+      }
+    };
+
+    initPeripheral();
+
     return () => {
       bluetoothSync.current?.cleanup();
+      blePeripheral.current?.cleanup();
     };
   }, [deviceName, autoScan]);
 
@@ -273,13 +341,74 @@ export function useBluetoothSync(options: UseBluetoothSyncOptions = {}): UseBlue
     setError(null);
   }, []);
 
+  // Set session mode
+  const setSessionMode = useCallback((mode: SessionMode) => {
+    setSessionModeState(mode);
+  }, []);
+
+  // Start host session (advertising)
+  const startHostSession = useCallback(async (): Promise<boolean> => {
+    if (!blePeripheral.current) {
+      setError(new Error('BLE Peripheral not available'));
+      return false;
+    }
+
+    try {
+      // Initialize peripheral with current settings
+      await blePeripheral.current.initialize({
+        deviceName,
+        deviceRole,
+        gateDistance,
+      });
+
+      // Start advertising
+      const success = await blePeripheral.current.startAdvertising();
+      if (success) {
+        setIsAdvertising(true);
+        setSessionModeState('host');
+        console.log('useBluetoothSync: Host session started');
+      }
+      return success;
+    } catch (err) {
+      console.error('useBluetoothSync: Start host session failed:', err);
+      setError(err instanceof Error ? err : new Error('Failed to start host session'));
+      return false;
+    }
+  }, [deviceName, deviceRole, gateDistance]);
+
+  // Stop host session
+  const stopHostSession = useCallback(async (): Promise<void> => {
+    if (!blePeripheral.current) return;
+
+    try {
+      await blePeripheral.current.stopAdvertising();
+      setIsAdvertising(false);
+      setConnectedClientCount(0);
+      setSessionModeState('none');
+      console.log('useBluetoothSync: Host session stopped');
+    } catch (err) {
+      console.error('useBluetoothSync: Stop host session failed:', err);
+      setError(err instanceof Error ? err : new Error('Failed to stop host session'));
+    }
+  }, []);
+
   return {
     // Bluetooth state
     isBluetoothAvailable,
     hasPermissions,
     requestPermissions,
 
-    // Device discovery
+    // Session mode (host = advertise, client = scan)
+    sessionMode,
+    setSessionMode,
+
+    // Host mode (advertising/peripheral)
+    isAdvertising,
+    startHostSession,
+    stopHostSession,
+    connectedClientCount,
+
+    // Client mode (scanning/central) - Device discovery
     isScanning,
     discoveredDevices,
     startScan,

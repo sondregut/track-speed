@@ -15,7 +15,7 @@ import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { Header, Button, Card, GlassCard } from '../components/ui';
-import { useBluetoothSync } from '../hooks';
+import { useBluetoothSync, SessionMode } from '../hooks';
 import { useSessionStore } from '../stores';
 import { BluetoothDevice, DeviceRole } from '../lib/sync';
 import { GateConfig, GateRole } from '../types';
@@ -24,6 +24,11 @@ const DEFAULT_ROLES: { value: DeviceRole; label: string; description: string }[]
   { value: 'start', label: 'Start Gate', description: 'Triggers timer start (0m)' },
   { value: 'finish', label: 'Finish Gate', description: 'Detects finish crossing' },
   { value: 'lap', label: 'Lap/Split Gate', description: 'Records split times' },
+];
+
+const SESSION_MODES: { value: SessionMode; label: string; description: string }[] = [
+  { value: 'host', label: 'Host Session', description: 'Other phones connect to this device' },
+  { value: 'client', label: 'Join Session', description: 'Connect to another host phone' },
 ];
 
 export function DeviceSyncScreen() {
@@ -54,7 +59,15 @@ export function DeviceSyncScreen() {
     isBluetoothAvailable,
     hasPermissions,
     requestPermissions,
-    // Device discovery
+    // Session mode (host/client)
+    sessionMode,
+    setSessionMode,
+    // Host mode
+    isAdvertising,
+    startHostSession,
+    stopHostSession,
+    connectedClientCount,
+    // Device discovery (client mode)
     isScanning,
     discoveredDevices,
     startScan,
@@ -226,6 +239,75 @@ export function DeviceSyncScreen() {
           )}
         </SyncCard>
 
+        {/* Session Mode Selection */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>
+            Session Mode
+          </Text>
+          <View style={styles.sessionModeContainer}>
+            {SESSION_MODES.map((mode) => (
+              <TouchableOpacity
+                key={mode.value}
+                style={[
+                  styles.sessionModeOption,
+                  { backgroundColor: colors.card.background, borderColor: colors.border.primary },
+                  sessionMode === mode.value && { borderColor: colors.primary[500], backgroundColor: selectedBg },
+                ]}
+                onPress={() => setSessionMode(mode.value)}
+                disabled={isAdvertising || connectedDevice !== null}
+              >
+                <Text
+                  style={[
+                    styles.sessionModeLabel,
+                    { color: colors.text.primary },
+                    sessionMode === mode.value && { color: selectedTextColor },
+                  ]}
+                >
+                  {mode.label}
+                </Text>
+                <Text style={[styles.sessionModeDescription, { color: colors.text.secondary }]}>
+                  {mode.description}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Host Mode Controls */}
+        {sessionMode === 'host' && (
+          <SyncCard variant="elevated" style={styles.hostControlsCard}>
+            <View style={styles.hostStatusRow}>
+              <View style={styles.hostStatusInfo}>
+                <Text style={[styles.hostStatusLabel, { color: colors.text.primary }]}>
+                  {isAdvertising ? 'Hosting Session' : 'Not Hosting'}
+                </Text>
+                {isAdvertising && (
+                  <Text style={[styles.connectedClientsText, { color: colors.text.secondary }]}>
+                    {connectedClientCount === 0
+                      ? 'Waiting for devices to connect...'
+                      : `${connectedClientCount} device${connectedClientCount !== 1 ? 's' : ''} connected`}
+                  </Text>
+                )}
+              </View>
+              <View style={[
+                styles.hostStatusIndicator,
+                { backgroundColor: isAdvertising ? colors.success[500] : colors.gray[500] }
+              ]} />
+            </View>
+            <Button
+              title={isAdvertising ? 'Stop Hosting' : 'Start Hosting'}
+              variant={isAdvertising ? 'secondary' : 'primary'}
+              onPress={isAdvertising ? stopHostSession : startHostSession}
+              style={{ marginTop: spacing.md }}
+            />
+            {isAdvertising && (
+              <Text style={[styles.hostHint, { color: colors.text.tertiary }]}>
+                Other devices can now find and connect to this phone
+              </Text>
+            )}
+          </SyncCard>
+        )}
+
         {/* Device Role Selection */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>
@@ -368,11 +450,12 @@ export function DeviceSyncScreen() {
           )}
         </View>
 
-        {/* Discovered Devices */}
+        {/* Discovered Devices - Client Mode Only */}
+        {sessionMode === 'client' && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>
-              Nearby Devices
+              Nearby Host Devices
             </Text>
             {isScanning ? (
               <TouchableOpacity onPress={stopScan}>
@@ -432,6 +515,7 @@ export function DeviceSyncScreen() {
             </View>
           )}
         </View>
+        )}
 
         {/* Instructions */}
         <SyncCard variant="default" style={styles.instructionsCard}>
@@ -659,5 +743,56 @@ const styles = StyleSheet.create({
   },
   customDistanceUnit: {
     fontSize: typography.fontSize.sm,
+  },
+  // Session mode styles
+  sessionModeContainer: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  sessionModeOption: {
+    flex: 1,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 2,
+    alignItems: 'center',
+  },
+  sessionModeLabel: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold as '600',
+    marginBottom: 2,
+  },
+  sessionModeDescription: {
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+  },
+  // Host controls styles
+  hostControlsCard: {
+    paddingVertical: spacing.lg,
+  },
+  hostStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  hostStatusInfo: {
+    flex: 1,
+  },
+  hostStatusLabel: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold as '600',
+  },
+  connectedClientsText: {
+    fontSize: typography.fontSize.sm,
+    marginTop: 2,
+  },
+  hostStatusIndicator: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+  },
+  hostHint: {
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+    marginTop: spacing.sm,
   },
 });

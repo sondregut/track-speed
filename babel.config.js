@@ -3,8 +3,8 @@ module.exports = function (api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
+      // Worklets-core for VisionCamera frame processors (Reanimated is handled by babel-preset-expo)
       'react-native-worklets-core/plugin',
-      'react-native-reanimated/plugin',
     ],
   };
 };

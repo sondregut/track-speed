@@ -18,6 +18,8 @@ import {
   AthleteListScreen,
   ResultDetailScreen,
   DeviceSyncScreen,
+  PoseTestScreen,
+  CrossingReviewScreen,
 } from './src/screens';
 import { ErrorBoundary } from './src/components/ui';
 import { ThemeProvider, useTheme } from './src/contexts';
@@ -33,6 +35,13 @@ export type RootStackParamList = {
   ResultDetail: { resultId: string };
   DeviceSync: undefined;
   Settings: undefined;
+  PoseTest: undefined;
+  CrossingReview: {
+    folderPath: string;
+    frameCount: number;
+    aiFrameIndex: number;
+    onConfirm?: (selectedFrameIndex: number, timestamp: number) => void;
+  };
 };
 
 export type TabParamList = {
@@ -190,6 +199,22 @@ function ThemedNavigator() {
           options={{
             animation: 'slide_from_right',
             presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="PoseTest"
+          component={PoseTestScreen}
+          options={{
+            animation: 'slide_from_bottom',
+            presentation: 'fullScreenModal',
+          }}
+        />
+        <Stack.Screen
+          name="CrossingReview"
+          component={CrossingReviewScreen}
+          options={{
+            animation: 'slide_from_bottom',
+            presentation: 'fullScreenModal',
           }}
         />
       </Stack.Navigator>

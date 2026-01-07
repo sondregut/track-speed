@@ -4,36 +4,42 @@
  * This hook manages the complete auto-detection flow:
  * 1. Camera frame capture (via Vision Camera)
  * 2. Pose detection (via iOS Vision framework)
- * 3. Torso tracking (smoothing + velocity)
- * 4. Gate crossing detection
- * 5. Sub-frame timing interpolation
+ * 3. Gate crossing detection
+ * 4. Sub-frame timing interpolation
  *
  * The "gate" is a virtual finish line in the camera view.
  * When the athlete's torso crosses this line, the timer stops.
+ *
+ * IMPORTANT: This hook uses react-native-worklets-core primitives ONLY.
+ * Do NOT use react-native-reanimated's runOnJS or useSharedValue here -
+ * they use a different worklet runtime that causes serialization errors.
  */
 
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { useFrameProcessor, Frame, VisionCameraProxy } from 'react-native-vision-camera';
-import { runOnJS } from 'react-native-reanimated';
+import { Worklets, useSharedValue } from 'react-native-worklets-core';
 import {
-  PoseDetectionResult,
   TorsoCenter,
   isVisionPoseAvailable,
   detectGateCrossing,
   interpolateCrossingTime,
-  calculateTorsoVelocity,
 } from '../lib/pose/VisionPoseDetector';
 
-// Initialize the native frame processor plugin
-let detectPosePlugin: ReturnType<typeof VisionCameraProxy.initFrameProcessorPlugin> | null = null;
-try {
-  detectPosePlugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
-  if (detectPosePlugin) {
-    console.log('VisionPose: Native plugin loaded successfully');
+// Initialize the native frame processor plugin at module level
+const initPlugin = () => {
+  try {
+    const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+    if (plugin) {
+      console.log('[VisionPose] Native plugin loaded');
+      return plugin;
+    }
+  } catch (e) {
+    console.log('[VisionPose] Native plugin not available (expected in Expo Go)');
   }
-} catch (e) {
-  console.log('VisionPose: Native plugin not available (expected in Expo Go)');
-}
+  return null;
+};
+
+const detectPosePlugin = initPlugin();
 
 interface UseVisionPoseOptions {
   /** X position of gate line (0-1, left to right). Default: 0.5 (center) */
@@ -42,8 +48,22 @@ interface UseVisionPoseOptions {
   minConfidence?: number;
   /** Enable detection. Default: true */
   enabled?: boolean;
+  /** Camera position: 'front' or 'back'. Default: 'back' */
+  cameraPosition?: 'front' | 'back';
+  /** Enable debug logging. Default: false */
+  debug?: boolean;
+  /** Enable frame capture on crossing. Default: false */
+  captureOnCrossing?: boolean;
+  /** Enable frame buffer for review feature. Default: false */
+  enableFrameBuffer?: boolean;
   /** Callback when gate crossing detected */
   onGateCrossing?: (crossingTimeMs: number, confidence: number) => void;
+  /** Callback when crossing frame is captured (base64 JPEG with overlays) */
+  onCrossingFrame?: (frameBase64: string) => void;
+  /** Callback when frame buffer is ready for review */
+  onFrameBufferReady?: (folderPath: string, frameCount: number, aiFrameIndex: number) => void;
+  /** Callback for detection status updates (throttled) */
+  onDetectionUpdate?: (isDetected: boolean, confidence: number) => void;
 }
 
 interface UseVisionPoseReturn {
@@ -65,6 +85,8 @@ interface UseVisionPoseReturn {
   frameProcessor: ReturnType<typeof useFrameProcessor>;
   /** Reset tracking state */
   reset: () => void;
+  /** Trigger manual frame capture (for manual override) */
+  manualCapture: () => void;
 }
 
 export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPoseReturn {
@@ -72,7 +94,14 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
     gateLineX = 0.5,
     minConfidence = 0.5,
     enabled = true,
+    cameraPosition = 'back',
+    debug = false,
+    captureOnCrossing = false,
+    enableFrameBuffer = false,
     onGateCrossing,
+    onCrossingFrame,
+    onFrameBufferReady,
+    onDetectionUpdate,
   } = options;
 
   // State - check both platform support AND native plugin availability
@@ -84,142 +113,239 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
   const [processingTimeMs, setProcessingTimeMs] = useState(0);
   const [velocity, setVelocity] = useState(0);
 
-  // Refs for tracking across frames
-  const previousTorsoRef = useRef<TorsoCenter | null>(null);
-  const previousXRef = useRef<number | null>(null);
-  const previousTimestampRef = useRef<number | null>(null);
+  // Refs for JS-side tracking (FPS counter, etc.)
   const frameCountRef = useRef(0);
   const lastFpsUpdateRef = useRef(Date.now());
-  const gateCrossedRef = useRef(false);
 
-  // Handle detection result (receives primitive values)
-  const handleDetectionResult = useCallback((
-    detected: boolean,
-    confidence: number,
-    torsoX: number,
-    torsoY: number,
-    timestamp: number,
-    processingTime: number,
-    frameWidth: number
-  ) => {
-    if (!detected || confidence < minConfidence * 100) {
-      setIsDetected(false);
-      setTorsoCenter(null);
-      setConfidence(0);
-      return;
-    }
+  // Shared values for worklet-side tracking (these work across worklet boundary)
+  const gateCrossedValue = useSharedValue(false);
+  const lastUpdateValue = useSharedValue(0);
+  const previousXValue = useSharedValue(-1); // -1 means no previous value
+  const manualCaptureValue = useSharedValue(false); // Trigger manual capture
+  const startFrameBufferCaptureValue = useSharedValue(false); // Trigger frame buffer capture
 
-    const torso: TorsoCenter = { x: torsoX, y: torsoY };
+  // Create runOnJS callbacks using worklets-core
+  // These are safe to call from VisionCamera's frame processor runtime
+  const onGateCrossedJS = useMemo(() => {
+    if (!onGateCrossing) return null;
+    return Worklets.createRunOnJS((crossingTimeMs: number, conf: number) => {
+      console.log('[VisionPose] Gate crossed!', { crossingTimeMs, confidence: conf });
+      onGateCrossing(crossingTimeMs, conf);
+    });
+  }, [onGateCrossing]);
 
-    setIsDetected(true);
-    setTorsoCenter(torso);
-    setConfidence(confidence);
-    setProcessingTimeMs(processingTime);
+  // Callback for crossing frame capture
+  const onCrossingFrameJS = useMemo(() => {
+    if (!onCrossingFrame || !captureOnCrossing) return null;
+    return Worklets.createRunOnJS((frameBase64: string) => {
+      console.log('[VisionPose] Crossing frame captured, size:', frameBase64.length);
+      onCrossingFrame(frameBase64);
+    });
+  }, [onCrossingFrame, captureOnCrossing]);
 
-    // Calculate velocity
-    if (previousTorsoRef.current && previousTimestampRef.current) {
-      const deltaTime = timestamp - previousTimestampRef.current;
-      const vel = calculateTorsoVelocity(
-        torso,
-        previousTorsoRef.current,
-        deltaTime,
-        frameWidth
-      );
-      setVelocity(vel);
-    }
+  // Callback for frame buffer ready
+  const onFrameBufferReadyJS = useMemo(() => {
+    if (!onFrameBufferReady || !enableFrameBuffer) return null;
+    return Worklets.createRunOnJS((folderPath: string, frameCount: number, aiFrameIndex: number) => {
+      console.log('[VisionPose] Frame buffer ready:', { folderPath, frameCount, aiFrameIndex });
+      onFrameBufferReady(folderPath, frameCount, aiFrameIndex);
+    });
+  }, [onFrameBufferReady, enableFrameBuffer]);
 
-    // Check for gate crossing
-    if (previousXRef.current !== null && !gateCrossedRef.current) {
-      const crossed = detectGateCrossing(torso, gateLineX, previousXRef.current);
-
-      if (crossed) {
-        gateCrossedRef.current = true;
-
-        // Calculate precise crossing time with sub-frame interpolation
-        const crossingTime = interpolateCrossingTime(
-          previousXRef.current,
-          torsoX,
-          gateLineX,
-          previousTimestampRef.current || timestamp,
-          timestamp
-        );
-
-        onGateCrossing?.(crossingTime, confidence);
+  const onStatusUpdateJS = useMemo(() => {
+    return Worklets.createRunOnJS((detected: boolean, conf: number, torsoX: number, torsoY: number, procTime: number) => {
+      setIsDetected(detected);
+      setConfidence(conf);
+      setProcessingTimeMs(procTime);
+      if (detected) {
+        setTorsoCenter({ x: torsoX, y: torsoY });
+      } else {
+        setTorsoCenter(null);
       }
-    }
 
-    // Update previous values
-    previousTorsoRef.current = torso;
-    previousXRef.current = torsoX;
-    previousTimestampRef.current = timestamp;
+      // Update FPS counter
+      frameCountRef.current++;
+      const now = Date.now();
+      if (now - lastFpsUpdateRef.current >= 1000) {
+        setFps(frameCountRef.current);
+        frameCountRef.current = 0;
+        lastFpsUpdateRef.current = now;
+      }
 
-    // Update FPS
-    frameCountRef.current++;
-    const now = Date.now();
-    if (now - lastFpsUpdateRef.current >= 1000) {
-      setFps(frameCountRef.current);
-      frameCountRef.current = 0;
-      lastFpsUpdateRef.current = now;
-    }
-  }, [gateLineX, minConfidence, onGateCrossing]);
+      // Call external update callback if provided
+      onDetectionUpdate?.(detected, conf);
+    });
+  }, [onDetectionUpdate]);
 
-  // Handle JSON result from native plugin (parses JSON and calls handleDetectionResult)
-  const handleJsonResult = useCallback((jsonString: string, frameWidth: number) => {
-    try {
-      const data = JSON.parse(jsonString);
-      handleDetectionResult(
-        Boolean(data.detected),
-        Number(data.confidence) || 0,
-        Number(data.torsoX) || 0,
-        Number(data.torsoY) || 0,
-        Number(data.timestamp) || 0,
-        Number(data.processingTimeMs) || 0,
-        frameWidth
-      );
-    } catch (e) {
-      // Invalid JSON, ignore
-    }
-  }, [handleDetectionResult]);
-
-  // Frame processor for Vision Camera
+  // Frame processor - runs native pose detection
+  // Uses ONLY worklets-core primitives (Worklets.createRunOnJS)
+  // NO Reanimated imports allowed here!
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
 
-    if (!enabled) return;
+    // Check plugin availability
     if (!detectPosePlugin) {
       return;
     }
 
-    try {
-      // Call the native detectPose frame processor plugin
-      // Returns JSON string to bypass worklet serialization issues
-      const jsonResult = detectPosePlugin.call(frame) as string;
+    // Determine if we should capture the frame
+    // 1. Near gate line for automatic crossing capture
+    // 2. Manual capture triggered from JS
+    const prevX = previousXValue.value;
+    const nearGate = prevX >= 0 && Math.abs(prevX - gateLineX) < 0.15;
+    const wantManualCapture = manualCaptureValue.value;
+    const shouldCapture = (captureOnCrossing && nearGate && !gateCrossedValue.value) || wantManualCapture;
+    const wantStartFrameBufferCapture = startFrameBufferCaptureValue.value;
 
-      if (jsonResult && typeof jsonResult === 'string') {
-        // Parse JSON on JS thread to avoid worklet issues
-        runOnJS(handleJsonResult)(jsonResult, frame.width);
-      }
-    } catch (error: unknown) {
-      // Silently ignore frame processor errors to avoid log spam
+    // Call native pose detection with arguments - returns JSON string
+    const resultStr = detectPosePlugin.call(frame, {
+      cameraPosition: cameraPosition,
+      debug: debug,
+      captureFrame: shouldCapture,
+      gateLineX: gateLineX,
+      enableFrameBuffer: enableFrameBuffer,
+      startFrameBufferCapture: wantStartFrameBufferCapture,
+    });
+
+    // Reset the start frame buffer capture flag after sending to native
+    if (wantStartFrameBufferCapture) {
+      startFrameBufferCaptureValue.value = false;
     }
-  }, [enabled, handleJsonResult]);
+
+    if (typeof resultStr !== 'string') {
+      return;
+    }
+
+    // Parse JSON result in worklet using simple string operations
+    // Format: {"detected":true,"confidence":85.00,"torsoX":0.500000,"torsoY":0.500000,"timestamp":123456,"processingTimeMs":5.00,"frameBase64":"..."}
+
+    // Check for detected
+    const detectedIdx = resultStr.indexOf('"detected":true');
+    const detected = detectedIdx !== -1;
+
+    // Helper to extract number after a key
+    const extractNumber = (key: string): number => {
+      'worklet';
+      const keyIdx = resultStr.indexOf(key);
+      if (keyIdx === -1) return 0;
+      const startIdx = keyIdx + key.length;
+      let endIdx = startIdx;
+      while (endIdx < resultStr.length) {
+        const char = resultStr.charAt(endIdx);
+        if (char === ',' || char === '}') break;
+        endIdx++;
+      }
+      const numStr = resultStr.substring(startIdx, endIdx);
+      return parseFloat(numStr) || 0;
+    };
+
+    // Helper to extract string value after a key
+    const extractString = (key: string): string => {
+      'worklet';
+      const keyIdx = resultStr.indexOf(key);
+      if (keyIdx === -1) return '';
+      const startIdx = keyIdx + key.length + 1; // +1 for the opening quote
+      const endIdx = resultStr.indexOf('"', startIdx);
+      if (endIdx === -1) return '';
+      return resultStr.substring(startIdx, endIdx);
+    };
+
+    const conf = extractNumber('"confidence":');
+    const torsoX = extractNumber('"torsoX":');
+    const torsoY = extractNumber('"torsoY":');
+    const timestamp = extractNumber('"timestamp":');
+    const procTime = extractNumber('"processingTimeMs":');
+
+    // Throttle status updates to every ~100ms (avoid overwhelming JS thread)
+    // But ALWAYS process gate crossing logic
+    const now = Date.now();
+    const shouldUpdateStatus = now - lastUpdateValue.value > 100;
+    if (shouldUpdateStatus) {
+      lastUpdateValue.value = now;
+      // Call JS to update UI state
+      if (onStatusUpdateJS) {
+        onStatusUpdateJS(detected, conf, torsoX, torsoY, procTime);
+      }
+    }
+
+    // Gate crossing detection - this is the critical path
+    // Track when torso crosses from one side of gate to the other
+    if (detected && conf >= minConfidence * 100) {
+      const currentPrevX = previousXValue.value;
+
+      // Check if we have a valid previous position and haven't already crossed
+      if (currentPrevX >= 0 && !gateCrossedValue.value) {
+        // Detect crossing: previous was on one side, current is on other side
+        const crossedLeftToRight = currentPrevX < gateLineX && torsoX >= gateLineX;
+        const crossedRightToLeft = currentPrevX > gateLineX && torsoX <= gateLineX;
+
+        if (crossedLeftToRight || crossedRightToLeft) {
+          gateCrossedValue.value = true;
+
+          // Notify crossing
+          if (onGateCrossedJS) {
+            onGateCrossedJS(timestamp, conf);
+          }
+
+          // Trigger frame buffer capture for review (if enabled)
+          if (enableFrameBuffer && onFrameBufferReadyJS) {
+            startFrameBufferCaptureValue.value = true;
+          }
+
+          // Extract and send captured frame if available
+          if (onCrossingFrameJS) {
+            const frameBase64 = extractString('"frameBase64":');
+            if (frameBase64.length > 0) {
+              onCrossingFrameJS(frameBase64);
+            }
+          }
+        }
+      }
+
+      // Update previous position
+      previousXValue.value = torsoX;
+    }
+
+    // Handle manual capture request (independent of gate crossing)
+    if (wantManualCapture && detected && onCrossingFrameJS) {
+      manualCaptureValue.value = false; // Reset flag immediately
+      const frameBase64 = extractString('"frameBase64":');
+      if (frameBase64.length > 0) {
+        onCrossingFrameJS(frameBase64);
+      }
+    }
+
+    // Handle frame buffer ready response
+    const frameBufferPath = extractString('"frameBufferPath":');
+    if (frameBufferPath.length > 0 && onFrameBufferReadyJS) {
+      const frameCount = extractNumber('"frameCount":');
+      const aiFrameIndex = extractNumber('"aiFrameIndex":');
+      onFrameBufferReadyJS(frameBufferPath, frameCount, aiFrameIndex);
+    }
+  }, [gateLineX, minConfidence, cameraPosition, debug, captureOnCrossing, enableFrameBuffer, onGateCrossedJS, onCrossingFrameJS, onFrameBufferReadyJS, onStatusUpdateJS, gateCrossedValue, lastUpdateValue, previousXValue, manualCaptureValue, startFrameBufferCaptureValue]);
 
   // Reset function
   const reset = useCallback(() => {
-    previousTorsoRef.current = null;
-    previousXRef.current = null;
-    previousTimestampRef.current = null;
-    gateCrossedRef.current = false;
+    gateCrossedValue.value = false;
+    previousXValue.value = -1;
+    manualCaptureValue.value = false;
+    startFrameBufferCaptureValue.value = false;
     setIsDetected(false);
     setTorsoCenter(null);
     setConfidence(0);
     setVelocity(0);
-  }, []);
+  }, [gateCrossedValue, previousXValue, manualCaptureValue, startFrameBufferCaptureValue]);
+
+  // Manual capture function - triggers capture on next frame
+  const manualCapture = useCallback(() => {
+    manualCaptureValue.value = true;
+  }, [manualCaptureValue]);
 
   // Reset when gate line changes
   useEffect(() => {
-    gateCrossedRef.current = false;
-  }, [gateLineX]);
+    gateCrossedValue.value = false;
+    previousXValue.value = -1;
+  }, [gateLineX, gateCrossedValue, previousXValue]);
 
   return {
     isAvailable,
@@ -231,5 +357,6 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
     velocity,
     frameProcessor,
     reset,
+    manualCapture,
   };
 }

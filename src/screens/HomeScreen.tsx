@@ -16,7 +16,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const { colors, isDark } = useTheme();
   const { sessions, currentSession, createSession } = useSessionStore();
   const { results } = useTimingStore();
-  const soundDetection = useSoundDetection({ threshold: 0.25 });
+  const soundDetection = useSoundDetection({ threshold: 0.50 });
 
   const recentSessions = sessions.slice(-5).reverse();
   // Use Glass UI on iOS 26+ (adapts to light/dark via tintColor)
@@ -166,16 +166,16 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                     styles.audioMeterLevel,
                     {
                       width: `${soundDetection.audioLevel * 100}%`,
-                      backgroundColor: soundDetection.audioLevel >= 0.25 ? '#22C55E' : '#3B82F6'
+                      backgroundColor: soundDetection.audioLevel >= 0.50 ? '#22C55E' : '#3B82F6'
                     }
                   ]}
                 />
                 {/* Threshold line */}
-                <View style={[styles.thresholdLine, { left: '25%' }]} />
+                <View style={[styles.thresholdLine, { left: '50%' }]} />
               </View>
               <View style={styles.audioMeterLabels}>
                 <Text style={[styles.audioMeterLabel, { color: colors.text.secondary }]}>0%</Text>
-                <Text style={[styles.audioMeterLabel, { color: '#F59E0B' }]}>25% (threshold)</Text>
+                <Text style={[styles.audioMeterLabel, { color: '#F59E0B' }]}>50% (threshold)</Text>
                 <Text style={[styles.audioMeterLabel, { color: colors.text.secondary }]}>100%</Text>
               </View>
             </View>
@@ -185,11 +185,20 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
               <Text style={[styles.soundStatusText, { color: colors.text.secondary }]}>
                 Level: {(soundDetection.audioLevel * 100).toFixed(0)}%
               </Text>
-              <Text style={[styles.soundStatusText, { color: soundDetection.audioLevel >= 0.25 ? '#22C55E' : colors.text.secondary }]}>
-                {soundDetection.audioLevel >= 0.25 ? '✓ Would trigger!' : 'Below threshold'}
+              <Text style={[styles.soundStatusText, { color: soundDetection.audioLevel >= 0.50 ? '#22C55E' : colors.text.secondary }]}>
+                {soundDetection.audioLevel >= 0.50 ? '✓ Would trigger!' : 'Below threshold'}
               </Text>
             </View>
           </Card>
+
+          {/* Pose Test Screen - dedicated test */}
+          <TouchableOpacity
+            style={[styles.devButton, { backgroundColor: '#8B5CF6', marginBottom: spacing.sm }]}
+            onPress={() => navigation.navigate('PoseTest')}
+          >
+            <Text style={styles.devButtonText}>Pose Detection Test</Text>
+            <Text style={styles.devButtonSubtext}>Full screen visual test - see if detection works</Text>
+          </TouchableOpacity>
 
           {/* Other test buttons */}
           <View style={styles.devButtons}>

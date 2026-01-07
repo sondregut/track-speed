@@ -4,6 +4,61 @@ This file tracks all development progress and completed work. **Update this log 
 
 ---
 
+## 2026-01-07
+
+### Session 12: Bluetooth Multi-Phone Sync - UI Components & Results Aggregation
+
+#### Completed Tasks
+
+**1. Role-Specific Timer UI Components** (`src/components/timing/`)
+- Created `SyncRoleIndicator.tsx` - Shows device role badge (Start/Finish/Split) with connection status
+- Created `SyncStatusOverlay.tsx` - Displays connected devices, sync accuracy, and last timing event
+- Created `GateControls.tsx` - Role-specific controls:
+  - Start Gate: Large START button, broadcasts to connected devices
+  - Finish Gate: Shows detection state, manual stop override
+  - Split Gate: Records intermediate times
+- Created `GateAssignmentCard.tsx` - Shows/manages device-to-gate assignments
+
+**2. ResultsAggregator System** (`src/lib/sync/`)
+- Created `ResultsAggregator.ts` - Aggregates timing from multiple gates:
+  - Collects events from start, finish, and split gates
+  - Calculates split times and segment velocities
+  - Handles out-of-order event arrival
+  - Generates comprehensive TimingResult with splits
+  - Provides session statistics (best time, average, consistency)
+- Created `useResultsAggregator.ts` hook for React integration
+
+**3. Updated Exports**
+- Updated `src/components/timing/index.ts` with new components
+- Updated `src/lib/sync/index.ts` with ResultsAggregator exports
+- Updated `src/hooks/index.ts` with useResultsAggregator export
+
+#### Files Created
+- `src/components/timing/SyncRoleIndicator.tsx`
+- `src/components/timing/SyncStatusOverlay.tsx`
+- `src/components/timing/GateControls.tsx`
+- `src/components/timing/GateAssignmentCard.tsx`
+- `src/lib/sync/ResultsAggregator.ts`
+- `src/hooks/useResultsAggregator.ts`
+
+#### Files Modified
+- `src/components/timing/index.ts`
+- `src/lib/sync/index.ts`
+- `src/hooks/index.ts`
+
+#### Technical Notes
+- Role-specific UI adapts based on `BluetoothDeviceRole`: 'start' | 'finish' | 'lap'
+- ResultsAggregator uses timeout system for incomplete runs (default 60s)
+- GateAssignmentCard allows assigning discovered Bluetooth devices to specific gate positions
+- SessionSetupScreen already has comprehensive multi-gate configuration UI
+
+#### Next Steps
+- Test multi-phone sync with real devices
+- Integrate ResultsAggregator with TimerScreen
+- Add visual split time display during runs
+
+---
+
 ## 2026-01-06
 
 ### Session 1: Project Setup & Core Architecture
@@ -816,6 +871,54 @@ Camera (60-120fps) → Vision Framework → Torso Landmarks → Gate Crossing �
 - Session 11 suggested downgrading Reanimated to v3, but that caused the folly/coro build error
 - The correct fix is upgrading to v4.1.1 as required by Expo SDK 54
 - VisionCamera v4.x works with Reanimated v4.x when using `runOnJS` pattern
+
+---
+
+### Session 13: Fix Two Worklet Runtimes Issue
+
+#### Problem
+- `global._createSerializableNumber is not a function` error when using VisionCamera frame processor
+- Root cause: VisionCamera uses `react-native-worklets-core` runtime, Reanimated 4 uses `react-native-worklets` runtime
+- Mixing primitives (runOnJS, useSharedValue) from different runtimes causes serialization errors
+
+#### Solution
+- Use ONLY `react-native-worklets-core` primitives inside frame processors
+- `Worklets.createRunOnJS()` for calling back to JS thread
+- `useSharedValue` from worklets-core (not Reanimated) for worklet-accessible state
+
+#### Completed Tasks
+
+**1. Fixed babel.config.js**
+- Removed manual `react-native-reanimated/plugin` (babel-preset-expo handles it)
+- Keep only `react-native-worklets-core/plugin` for VisionCamera frame processors
+
+**2. Rewrote useVisionPose.ts**
+- Removed all Reanimated imports (runOnJS, useSharedValue, useAnimatedReaction)
+- Added imports from `react-native-worklets-core` (Worklets, useSharedValue)
+- Created JS callbacks using `Worklets.createRunOnJS()`
+- Use worklets-core's `useSharedValue` for worklet-accessible state
+- Proper gate crossing detection tracking previous torso position
+
+#### Files Modified
+- `babel.config.js` - Simplified to only worklets-core plugin
+- `src/hooks/useVisionPose.ts` - Complete rewrite using worklets-core primitives
+
+#### Technical Details
+- Two separate worklet runtimes exist in the app:
+  - `react-native-worklets-core` (Margelo) - used by VisionCamera
+  - `react-native-worklets` (Software Mansion) - used by Reanimated 4
+- Frame processors run in VisionCamera's secondary JS runtime
+- Must use worklets-core's primitives to call back to main JS thread
+- Reanimated's primitives can still be used elsewhere in the app (animations, etc.)
+
+#### Build Status
+- TypeScript passes
+- Native build succeeds
+- Plugin loads: `VisionPose: Native plugin loaded successfully`
+
+#### Next Steps
+- Test pose detection on device (point camera at person)
+- Verify gate crossing triggers timer stop
 
 ---
 

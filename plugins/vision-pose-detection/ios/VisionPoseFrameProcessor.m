@@ -1,7 +1,5 @@
 #import <VisionCamera/FrameProcessorPlugin.h>
 #import <VisionCamera/FrameProcessorPluginRegistry.h>
+#import "TrackSpeed-Swift.h"
 
-@interface VisionPoseFrameProcessorPlugin : FrameProcessorPlugin
-@end
-
-VISION_EXPORT_FRAME_PROCESSOR(VisionPoseFrameProcessorPlugin, detectPose)
+VISION_EXPORT_SWIFT_FRAME_PROCESSOR(VisionPoseFrameProcessorPlugin, detectPose)

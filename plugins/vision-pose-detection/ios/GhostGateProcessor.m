@@ -1,16 +1,5 @@
 #import <VisionCamera/FrameProcessorPlugin.h>
 #import <VisionCamera/FrameProcessorPluginRegistry.h>
+#import "TrackSpeed-Swift.h"
 
-@interface GhostGateProcessorPlugin : FrameProcessorPlugin
-@end
-
-@implementation GhostGateProcessorPlugin
-
-+ (void)load {
-  [FrameProcessorPluginRegistry addFrameProcessorPlugin:@"detectGhostGateMotion"
-                                        withInitializer:^FrameProcessorPlugin* (VisionCameraProxyHolder* proxy, NSDictionary* options) {
-    return [[GhostGateProcessorPlugin alloc] initWithProxy:proxy withOptions:options];
-  }];
-}
-
-@end
+VISION_EXPORT_SWIFT_FRAME_PROCESSOR(GhostGateProcessorPlugin, detectGhostGateMotion)

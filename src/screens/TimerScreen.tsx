@@ -130,7 +130,13 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
   // Vision Camera setup
   const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice('back');
+  const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>('back');
+  const device = useCameraDevice(cameraPosition);
+
+  // Flip camera handler
+  const handleFlipCamera = useCallback(() => {
+    setCameraPosition(prev => prev === 'back' ? 'front' : 'back');
+  }, []);
 
   // Select format that supports high FPS for better timing accuracy
   const format = useCameraFormat(device, [
@@ -397,6 +403,11 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
             onPress={() => navigation.goBack()}
             variant="ghost"
           />
+        }
+        rightAction={
+          <TouchableOpacity style={styles.flipCameraButton} onPress={handleFlipCamera}>
+            <Text style={styles.flipCameraIcon}>⟳</Text>
+          </TouchableOpacity>
         }
       />
 
@@ -740,5 +751,18 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.5,
     shadowRadius: 4,
+  },
+  // Flip camera button
+  flipCameraButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: darkColors.black + '80',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  flipCameraIcon: {
+    fontSize: 24,
+    color: darkColors.white,
   },
 });

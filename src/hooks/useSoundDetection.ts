@@ -45,12 +45,6 @@ interface UseSoundDetectionReturn {
   hasPermission: boolean;
 }
 
-// Recording options with metering enabled
-const RECORDING_OPTIONS = {
-  ...RecordingPresets.HIGH_QUALITY,
-  isMeteringEnabled: true,
-};
-
 export function useSoundDetection(
   options: UseSoundDetectionOptions = {}
 ): UseSoundDetectionReturn {
@@ -71,41 +65,27 @@ export function useSoundDetection(
   // Refs
   const lastDetectionTime = useRef(0);
 
-  // Audio recorder hook with status listener for metering
-  const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
+  // Create recorder with metering enabled
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
+
+  // Get recorder state (includes metering)
   const recorderState = useAudioRecorderState(audioRecorder);
-
-  // Process metering updates
-  useEffect(() => {
-    if (!isListening || recorderState.metering === undefined) return;
-
-    // Convert dB to 0-1 scale (-60dB to 0dB typical range)
-    // Metering values are typically negative dB (-160 silence to 0 max)
-    const meteringDb = recorderState.metering;
-    const normalizedLevel = Math.max(0, Math.min(1, (meteringDb + 60) / 60));
-    setAudioLevel(normalizedLevel);
-
-    // Check for sound spike
-    const now = Date.now();
-    if (
-      normalizedLevel >= threshold &&
-      now - lastDetectionTime.current > debounceMs
-    ) {
-      lastDetectionTime.current = now;
-      setSoundDetected(true);
-    }
-  }, [recorderState.metering, isListening, threshold, debounceMs]);
 
   // Request permissions
   useEffect(() => {
     const requestPermissions = async () => {
       try {
         const status = await AudioModule.requestRecordingPermissionsAsync();
+        console.log('Sound: Permission status:', status);
         setHasPermission(status.granted);
         if (!status.granted) {
           setError(new Error('Microphone permission not granted'));
         }
       } catch (err) {
+        console.log('Sound: Permission error:', err);
         setError(err instanceof Error ? err : new Error('Failed to request permissions'));
       }
     };
@@ -113,9 +93,39 @@ export function useSoundDetection(
     requestPermissions();
   }, []);
 
+  // Process metering from recorder state
+  useEffect(() => {
+    if (!isListening || !recorderState.isRecording) {
+      return;
+    }
+
+    const meteringDb = recorderState.metering ?? -160;
+
+    // Convert dB to 0-1 scale (-60dB to 0dB typical range)
+    const normalizedLevel = Math.max(0, Math.min(1, (meteringDb + 60) / 60));
+    setAudioLevel(normalizedLevel);
+
+    // Debug log
+    if (normalizedLevel > 0.05) {
+      console.log(`Sound: level=${normalizedLevel.toFixed(2)}, threshold=${threshold}, dB=${meteringDb.toFixed(1)}`);
+    }
+
+    // Check for sound spike
+    const now = Date.now();
+    if (
+      normalizedLevel >= threshold &&
+      now - lastDetectionTime.current > debounceMs
+    ) {
+      console.log('Sound: TRIGGERED!');
+      lastDetectionTime.current = now;
+      setSoundDetected(true);
+    }
+  }, [recorderState, isListening, threshold, debounceMs]);
+
   // Start listening
   const startListening = useCallback(async () => {
     if (!hasPermission) {
+      console.log('Sound: No permission');
       setError(new Error('Microphone permission not granted'));
       return;
     }
@@ -124,16 +134,23 @@ export function useSoundDetection(
       setError(null);
       setSoundDetected(false);
 
+      console.log('Sound: Configuring audio mode...');
       // Configure audio mode for recording
       await AudioModule.setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
       });
 
-      // Start recording (we monitor levels, don't save the file)
-      await audioRecorder.record();
+      console.log('Sound: Preparing to record...');
+      await audioRecorder.prepareToRecordAsync();
+
+      console.log('Sound: Starting recording...');
+      audioRecorder.record();
+
       setIsListening(true);
+      console.log('Sound: Recording started!');
     } catch (err) {
+      console.log('Sound: ERROR starting:', err);
       setError(err instanceof Error ? err : new Error('Failed to start listening'));
       setIsListening(false);
     }
@@ -141,11 +158,15 @@ export function useSoundDetection(
 
   // Stop listening
   const stopListening = useCallback(async () => {
+    console.log('Sound: stopListening called');
+
     try {
       await audioRecorder.stop();
       setIsListening(false);
       setAudioLevel(0);
+      console.log('Sound: Stopped listening');
     } catch (err) {
+      console.log('Sound: ERROR stopping:', err);
       setError(err instanceof Error ? err : new Error('Failed to stop listening'));
     }
   }, [audioRecorder]);
@@ -165,11 +186,11 @@ export function useSoundDetection(
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (isListening) {
-        audioRecorder.stop();
+      if (audioRecorder) {
+        audioRecorder.stop().catch(() => {});
       }
     };
-  }, [isListening, audioRecorder]);
+  }, [audioRecorder]);
 
   return {
     isListening,

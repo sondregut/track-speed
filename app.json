@@ -31,7 +31,8 @@
           "bluetooth-peripheral"
         ],
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "appleTeamId": "4D4ADMM7XL"
     },
     "android": {
       "adaptiveIcon": {

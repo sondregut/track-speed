@@ -31,7 +31,7 @@ public class VisionPoseFrameProcessorPlugin: FrameProcessorPlugin {
     // Get pixel buffer from frame
     let buffer = frame.buffer
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else {
-      return ["detected": false, "error": "No pixel buffer"]
+      return "{\"detected\":false}"
     }
 
     // Run pose detection
@@ -40,12 +40,12 @@ public class VisionPoseFrameProcessorPlugin: FrameProcessorPlugin {
     do {
       try handler.perform([poseRequest])
     } catch {
-      return ["detected": false, "error": error.localizedDescription]
+      return "{\"detected\":false}"
     }
 
     // Get results
     guard let observations = poseRequest.results, !observations.isEmpty else {
-      return createResult(detected: false, startTime: startTime)
+      return createJsonResult(detected: false, startTime: startTime)
     }
 
     // Use first person detected
@@ -53,28 +53,26 @@ public class VisionPoseFrameProcessorPlugin: FrameProcessorPlugin {
 
     // Extract torso landmarks
     guard let torsoData = extractTorso(from: observation) else {
-      return createResult(detected: false, startTime: startTime)
+      return createJsonResult(detected: false, startTime: startTime)
     }
 
     let processingTime = (CACurrentMediaTime() - startTime) * 1000
+    let timestamp = Date().timeIntervalSince1970 * 1000
 
-    return [
-      "detected": true,
-      "landmarks": torsoData.landmarks,
-      "torsoCenter": torsoData.center,
-      "confidence": torsoData.confidence,
-      "timestamp": Date().timeIntervalSince1970 * 1000,
-      "processingTimeMs": processingTime,
-      "frameWidth": CVPixelBufferGetWidth(pixelBuffer),
-      "frameHeight": CVPixelBufferGetHeight(pixelBuffer)
-    ] as [String: Any]
+    // Return JSON string to bypass worklet serialization issues
+    return String(format: "{\"detected\":true,\"confidence\":%.2f,\"torsoX\":%.6f,\"torsoY\":%.6f,\"timestamp\":%.0f,\"processingTimeMs\":%.2f}",
+                  torsoData.confidence * 100,
+                  torsoData.centerX,
+                  torsoData.centerY,
+                  timestamp,
+                  processingTime)
   }
 
   // MARK: - Torso Extraction
 
   private struct TorsoData {
-    let landmarks: [String: Any]
-    let center: [String: Any]
+    let centerX: CGFloat
+    let centerY: CGFloat
     let confidence: Float
   }
 
@@ -93,73 +91,33 @@ public class VisionPoseFrameProcessorPlugin: FrameProcessorPlugin {
 
       let avgConfidence = points.reduce(0) { $0 + $1.confidence } / Float(points.count)
 
-      let landmarks: [String: Any] = [
-        "leftShoulder": pointToDict(leftShoulder),
-        "rightShoulder": pointToDict(rightShoulder),
-        "leftHip": pointToDict(leftHip),
-        "rightHip": pointToDict(rightHip)
-      ]
+      // Calculate torso center with lean-adaptive weighting
+      let shoulderMidX = (leftShoulder.location.x + rightShoulder.location.x) / 2
+      let shoulderMidY = (leftShoulder.location.y + rightShoulder.location.y) / 2
+      let hipMidX = (leftHip.location.x + rightHip.location.x) / 2
+      let hipMidY = (leftHip.location.y + rightHip.location.y) / 2
 
-      let center = calculateCenter(
-        leftShoulder: leftShoulder,
-        rightShoulder: rightShoulder,
-        leftHip: leftHip,
-        rightHip: rightHip
-      )
+      let leanAngle = atan2(shoulderMidX - hipMidX, shoulderMidY - hipMidY)
+      let leanFactor = sin(leanAngle) * 0.2
+      let shoulderWeight = 0.5 - leanFactor
+      let hipWeight = 0.5 + leanFactor
 
-      return TorsoData(landmarks: landmarks, center: center, confidence: avgConfidence)
+      let centerX = shoulderMidX * CGFloat(shoulderWeight) + hipMidX * CGFloat(hipWeight)
+      let centerY = shoulderMidY * CGFloat(shoulderWeight) + hipMidY * CGFloat(hipWeight)
+
+      return TorsoData(centerX: centerX, centerY: 1.0 - centerY, confidence: avgConfidence)
 
     } catch {
       return nil
     }
   }
 
-  private func pointToDict(_ point: VNRecognizedPoint) -> [String: Any] {
-    return [
-      "x": point.location.x,
-      "y": 1.0 - point.location.y,  // Flip Y for top-left origin
-      "confidence": point.confidence
-    ]
-  }
-
-  private func calculateCenter(
-    leftShoulder: VNRecognizedPoint,
-    rightShoulder: VNRecognizedPoint,
-    leftHip: VNRecognizedPoint,
-    rightHip: VNRecognizedPoint
-  ) -> [String: Any] {
-
-    let shoulderMidX = (leftShoulder.location.x + rightShoulder.location.x) / 2
-    let shoulderMidY = (leftShoulder.location.y + rightShoulder.location.y) / 2
-    let hipMidX = (leftHip.location.x + rightHip.location.x) / 2
-    let hipMidY = (leftHip.location.y + rightHip.location.y) / 2
-
-    // Lean-adaptive weighting for sprint detection
-    let leanAngle = atan2(shoulderMidX - hipMidX, shoulderMidY - hipMidY)
-    let leanFactor = sin(leanAngle) * 0.2
-    let shoulderWeight = 0.5 - leanFactor
-    let hipWeight = 0.5 + leanFactor
-
-    let centerX = shoulderMidX * CGFloat(shoulderWeight) + hipMidX * CGFloat(hipWeight)
-    let centerY = shoulderMidY * CGFloat(shoulderWeight) + hipMidY * CGFloat(hipWeight)
-
-    return [
-      "x": centerX,
-      "y": 1.0 - centerY,
-      "leanAngle": leanAngle,
-      "leanFactor": leanFactor
-    ]
-  }
-
-  private func createResult(detected: Bool, startTime: CFTimeInterval) -> [String: Any] {
+  private func createJsonResult(detected: Bool, startTime: CFTimeInterval) -> String {
     let processingTime = (CACurrentMediaTime() - startTime) * 1000
-    return [
-      "detected": detected,
-      "landmarks": NSNull(),
-      "torsoCenter": NSNull(),
-      "confidence": 0,
-      "timestamp": Date().timeIntervalSince1970 * 1000,
-      "processingTimeMs": processingTime
-    ]
+    let timestamp = Date().timeIntervalSince1970 * 1000
+    return String(format: "{\"detected\":%@,\"confidence\":0,\"torsoX\":0,\"torsoY\":0,\"timestamp\":%.0f,\"processingTimeMs\":%.2f}",
+                  detected ? "true" : "false",
+                  timestamp,
+                  processingTime)
   }
 }

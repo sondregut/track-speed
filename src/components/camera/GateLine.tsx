@@ -1,15 +1,13 @@
 import React from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { colors } from '../../constants/theme';
 
 interface GateLineProps {
-  position?: number; // 0-1, position from top
+  position?: number; // 0-1, position from left (for vertical line)
   color?: string;
   thickness?: number;
   animated?: boolean;
 }
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export function GateLine({
   position = 0.5,
@@ -22,17 +20,17 @@ export function GateLine({
       style={[
         styles.line,
         {
-          top: `${position * 100}%`,
+          left: `${position * 100}%`,
           backgroundColor: color,
-          height: thickness,
+          width: thickness,
         },
         animated && styles.animated,
       ]}
     >
-      {/* Left marker */}
-      <View style={[styles.marker, styles.leftMarker, { backgroundColor: color }]} />
-      {/* Right marker */}
-      <View style={[styles.marker, styles.rightMarker, { backgroundColor: color }]} />
+      {/* Top marker */}
+      <View style={[styles.marker, styles.topMarker, { backgroundColor: color }]} />
+      {/* Bottom marker */}
+      <View style={[styles.marker, styles.bottomMarker, { backgroundColor: color }]} />
     </View>
   );
 }
@@ -40,12 +38,11 @@ export function GateLine({
 const styles = StyleSheet.create({
   line: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    top: 0,
+    bottom: 0,
     zIndex: 10,
   },
   animated: {
-    // Add pulse animation in production
     opacity: 0.9,
   },
   marker: {
@@ -53,12 +50,12 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    top: -8,
+    left: -8,
   },
-  leftMarker: {
-    left: 10,
+  topMarker: {
+    top: 40,
   },
-  rightMarker: {
-    right: 10,
+  bottomMarker: {
+    bottom: 40,
   },
 });

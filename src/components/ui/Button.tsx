@@ -35,7 +35,7 @@ export function Button({
   style,
   textStyle,
 }: ButtonProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const isDisabled = disabled || loading;
 
   const getVariantStyle = (): ViewStyle => {
@@ -44,15 +44,15 @@ export function Button({
         return { backgroundColor: colors.primary[500] };
       case 'secondary':
         return {
-          backgroundColor: colors.gray[100],
+          backgroundColor: isDark ? colors.background.tertiary : colors.gray[100],
           borderWidth: 1,
-          borderColor: colors.gray[300],
+          borderColor: isDark ? colors.border.secondary : colors.gray[300],
         };
       case 'outline':
         return {
           backgroundColor: 'transparent',
           borderWidth: 1,
-          borderColor: colors.primary[500],
+          borderColor: isDark ? colors.primary[400] : colors.primary[500],
         };
       case 'ghost':
         return { backgroundColor: 'transparent' };
@@ -70,7 +70,7 @@ export function Button({
         return colors.text.primary;
       case 'outline':
       case 'ghost':
-        return colors.primary[500];
+        return isDark ? colors.primary[400] : colors.primary[500];
     }
   };
 
@@ -99,7 +99,7 @@ export function Button({
     >
       {loading ? (
         <ActivityIndicator
-          color={variant === 'outline' || variant === 'ghost' ? colors.primary[500] : colors.white}
+          color={variant === 'outline' || variant === 'ghost' ? (isDark ? colors.primary[400] : colors.primary[500]) : colors.white}
           size="small"
         />
       ) : (

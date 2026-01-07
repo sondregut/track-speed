@@ -33,25 +33,21 @@ const SESSION_TYPES: {
   value: SessionType;
   label: string;
   description: string;
-  icon: string;
 }[] = [
   {
     value: 'flying',
-    label: 'Flying Start',
-    description: 'Max velocity testing',
-    icon: '⚡',
+    label: 'Flying',
+    description: 'Max velocity',
   },
   {
     value: 'standing',
-    label: 'Standing Start',
+    label: 'Standing',
     description: 'From stationary',
-    icon: '🏃',
   },
   {
     value: 'block_start',
-    label: 'Block Start',
-    description: 'Competition style',
-    icon: '🎯',
+    label: 'Block',
+    description: 'Competition',
   },
 ];
 
@@ -91,6 +87,14 @@ export function SessionSetupScreen() {
   // Use Glass UI on iOS 26+ (adapts to light/dark via tintColor)
   const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
   const PreviewCard = useGlassUI ? GlassCard : Card;
+
+  // Theme-aware selection colors
+  const selectedBg = isDark ? colors.primary[900] : colors.primary[50];
+  const selectedTextColor = isDark ? colors.primary[300] : colors.primary[600];
+  const lightBadgeBg = (baseColor: { 50?: string; 100: string; 900?: string }) =>
+    isDark ? (baseColor[900] || colors.background.tertiary) : baseColor[100];
+  const lightBadgeText = (baseColor: { 300?: string; 600: string }) =>
+    isDark ? (baseColor[300] || baseColor[600]) : baseColor[600];
 
   // Form state
   const [sessionName, setSessionName] = useState('');
@@ -257,17 +261,16 @@ export function SessionSetupScreen() {
                   { backgroundColor: colors.card.background, borderColor: colors.border.primary },
                   sessionType === type.value && {
                     borderColor: colors.primary[500],
-                    backgroundColor: colors.primary[50],
+                    backgroundColor: selectedBg,
                   },
                 ]}
                 onPress={() => setSessionType(type.value)}
               >
-                <Text style={styles.typeIcon}>{type.icon}</Text>
                 <Text
                   style={[
                     styles.typeLabel,
                     { color: colors.text.primary },
-                    sessionType === type.value && { color: colors.primary[600] },
+                    sessionType === type.value && { color: selectedTextColor },
                   ]}
                 >
                   {type.label}
@@ -277,7 +280,7 @@ export function SessionSetupScreen() {
                     styles.typeDescription,
                     { color: colors.text.secondary },
                   ]}
-                  numberOfLines={2}
+                  numberOfLines={1}
                 >
                   {type.description}
                 </Text>
@@ -298,7 +301,7 @@ export function SessionSetupScreen() {
                     style={[
                       styles.distanceOption,
                       { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                      flyingDistance === d && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                      flyingDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                     ]}
                     onPress={() => setFlyingDistance(d)}
                   >
@@ -306,7 +309,7 @@ export function SessionSetupScreen() {
                       style={[
                         styles.distanceText,
                         { color: colors.text.secondary },
-                        flyingDistance === d && { color: colors.primary[600] },
+                        flyingDistance === d && { color: selectedTextColor },
                       ]}
                     >
                       {d}m
@@ -328,7 +331,7 @@ export function SessionSetupScreen() {
                     style={[
                       styles.distanceOption,
                       { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                      flyInDistance === d && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                      flyInDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                     ]}
                     onPress={() => setFlyInDistance(d)}
                   >
@@ -336,7 +339,7 @@ export function SessionSetupScreen() {
                       style={[
                         styles.distanceText,
                         { color: colors.text.secondary },
-                        flyInDistance === d && { color: colors.primary[600] },
+                        flyInDistance === d && { color: selectedTextColor },
                       ]}
                     >
                       {d}m
@@ -359,7 +362,7 @@ export function SessionSetupScreen() {
                   style={[
                     styles.distanceGridItem,
                     { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                    standardDistance === d && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                    standardDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                   ]}
                   onPress={() => setStandardDistance(d)}
                 >
@@ -367,7 +370,7 @@ export function SessionSetupScreen() {
                     style={[
                       styles.distanceText,
                       { color: colors.text.secondary },
-                      standardDistance === d && { color: colors.primary[600] },
+                      standardDistance === d && { color: selectedTextColor },
                     ]}
                   >
                     {d}m
@@ -388,7 +391,7 @@ export function SessionSetupScreen() {
                 style={[
                   styles.methodOption,
                   { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                  startMethod === method.value && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                  startMethod === method.value && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                 ]}
                 onPress={() => setStartMethod(method.value)}
               >
@@ -397,7 +400,7 @@ export function SessionSetupScreen() {
                     style={[
                       styles.methodLabel,
                       { color: colors.text.primary },
-                      startMethod === method.value && { color: colors.primary[600] },
+                      startMethod === method.value && { color: selectedTextColor },
                     ]}
                   >
                     {method.label}
@@ -442,7 +445,7 @@ export function SessionSetupScreen() {
             <View
               style={[
                 styles.toggle,
-                { backgroundColor: splitsEnabled ? colors.primary[500] : colors.gray[300] },
+                { backgroundColor: splitsEnabled ? colors.primary[500] : (isDark ? colors.gray[600] : colors.gray[300]) },
               ]}
             >
               <View
@@ -490,10 +493,10 @@ export function SessionSetupScreen() {
                     </Text>
                     {gate.role === 'lap' && (
                       <TouchableOpacity
-                        style={[styles.gateRemoveButton, { backgroundColor: colors.error[100] }]}
+                        style={[styles.gateRemoveButton, { backgroundColor: isDark ? colors.background.tertiary : colors.error[100] }]}
                         onPress={() => removeGate(gate.distance_m)}
                       >
-                        <Text style={[styles.gateRemoveText, { color: colors.error[600] }]}>X</Text>
+                        <Text style={[styles.gateRemoveText, { color: colors.error[500] }]}>X</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -561,7 +564,7 @@ export function SessionSetupScreen() {
                         { borderColor: colors.border.primary },
                         customGates.find(g => g.role === 'finish')?.distance_m === d && {
                           borderColor: colors.primary[500],
-                          backgroundColor: colors.primary[50],
+                          backgroundColor: selectedBg,
                         },
                       ]}
                       onPress={() => updateFinishDistance(d)}
@@ -571,7 +574,7 @@ export function SessionSetupScreen() {
                           styles.finishOptionText,
                           { color: colors.text.secondary },
                           customGates.find(g => g.role === 'finish')?.distance_m === d && {
-                            color: colors.primary[600],
+                            color: selectedTextColor,
                           },
                         ]}
                       >
@@ -681,9 +684,9 @@ export function SessionSetupScreen() {
                       styles.previewGateBadge,
                       {
                         backgroundColor:
-                          gate.role === 'start' ? colors.success[100] :
-                          gate.role === 'finish' ? colors.error[100] :
-                          colors.primary[100],
+                          gate.role === 'start' ? lightBadgeBg(colors.success) :
+                          gate.role === 'finish' ? lightBadgeBg(colors.error) :
+                          lightBadgeBg(colors.primary),
                       },
                     ]}
                   >
@@ -692,9 +695,9 @@ export function SessionSetupScreen() {
                         styles.previewGateText,
                         {
                           color:
-                            gate.role === 'start' ? colors.success[600] :
-                            gate.role === 'finish' ? colors.error[600] :
-                            colors.primary[600],
+                            gate.role === 'start' ? lightBadgeText(colors.success) :
+                            gate.role === 'finish' ? lightBadgeText(colors.error) :
+                            lightBadgeText(colors.primary),
                         },
                       ]}
                     >
@@ -760,25 +763,22 @@ const styles = StyleSheet.create({
   },
   typeCard: {
     flex: 1,
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
     borderWidth: 2,
     alignItems: 'center',
-    minHeight: 100,
-  },
-  typeIcon: {
-    fontSize: 24,
-    marginBottom: spacing.xs,
+    justifyContent: 'center',
   },
   typeLabel: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold as '600',
     textAlign: 'center',
-    marginBottom: 2,
   },
   typeDescription: {
     fontSize: typography.fontSize.xs,
     textAlign: 'center',
+    marginTop: 2,
   },
   input: {
     borderRadius: borderRadius.md,

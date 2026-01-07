@@ -15,7 +15,7 @@ interface ResultsScreenProps {
 }
 
 export function ResultsScreen({ navigation }: ResultsScreenProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { results, deleteResult } = useTimingStore();
   const { currentSession } = useSessionStore();
 
@@ -31,7 +31,7 @@ export function ResultsScreen({ navigation }: ResultsScreenProps) {
 
   const renderResult = ({ item, index }: { item: TimingResult; index: number }) => (
     <View style={styles.resultItem}>
-      <View style={[styles.resultIndex, { backgroundColor: colors.gray[200] }]}>
+      <View style={[styles.resultIndex, { backgroundColor: isDark ? colors.background.tertiary : colors.gray[200] }]}>
         <Text style={[styles.indexText, { color: colors.text.secondary }]}>{index + 1}</Text>
       </View>
       <ResultCard

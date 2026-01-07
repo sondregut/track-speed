@@ -21,7 +21,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ navigation }: ProfileScreenProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { sessions, athletes } = useSessionStore();
   const { results } = useTimingStore();
   const { units } = useSettingsStore();
@@ -249,8 +249,8 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
                       {new Date(session.date).toLocaleDateString()}
                     </Text>
                   </View>
-                  <View style={[styles.sessionBadge, { backgroundColor: colors.primary[100] }]}>
-                    <Text style={[styles.sessionBadgeText, { color: colors.primary[600] }]}>
+                  <View style={[styles.sessionBadge, { backgroundColor: isDark ? colors.primary[900] : colors.primary[100] }]}>
+                    <Text style={[styles.sessionBadgeText, { color: isDark ? colors.primary[300] : colors.primary[600] }]}>
                       {session.results?.length || 0} runs
                     </Text>
                   </View>

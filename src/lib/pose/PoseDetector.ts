@@ -263,20 +263,19 @@ export function createPoseDetector(
  * Determine which detection backend to use
  */
 export function getDetectorBackend(): DetectorBackend {
-  // For MVP in Expo Go, always use mock
-  // Native pose detection requires development build
-  const isExpoGo = true; // Always true for now
-
-  if (isExpoGo) {
-    return 'mock';
-  }
-
-  if (Platform.OS === 'ios') {
-    return 'vision';
-  }
-
-  if (Platform.OS === 'android') {
-    return 'mediapipe';
+  // Check if we have native VisionCamera available (dev build, not Expo Go)
+  try {
+    const { VisionCameraProxy } = require('react-native-vision-camera');
+    if (VisionCameraProxy) {
+      if (Platform.OS === 'ios') {
+        return 'vision';
+      }
+      if (Platform.OS === 'android') {
+        return 'mediapipe';
+      }
+    }
+  } catch {
+    // VisionCamera not available (likely Expo Go)
   }
 
   return 'mock';

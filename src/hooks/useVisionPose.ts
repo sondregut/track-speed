@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { useFrameProcessor, Frame } from 'react-native-vision-camera';
+import { useFrameProcessor, Frame, VisionCameraProxy } from 'react-native-vision-camera';
 import { runOnJS } from 'react-native-reanimated';
 import {
   PoseDetectionResult,
@@ -23,6 +23,17 @@ import {
   interpolateCrossingTime,
   calculateTorsoVelocity,
 } from '../lib/pose/VisionPoseDetector';
+
+// Initialize the native frame processor plugin
+let detectPosePlugin: ReturnType<typeof VisionCameraProxy.initFrameProcessorPlugin> | null = null;
+try {
+  detectPosePlugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+  if (detectPosePlugin) {
+    console.log('VisionPose: Native plugin loaded successfully');
+  }
+} catch (e) {
+  console.log('VisionPose: Native plugin not available (expected in Expo Go)');
+}
 
 interface UseVisionPoseOptions {
   /** X position of gate line (0-1, left to right). Default: 0.5 (center) */
@@ -64,8 +75,8 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
     onGateCrossing,
   } = options;
 
-  // State
-  const [isAvailable] = useState(() => isVisionPoseAvailable());
+  // State - check both platform support AND native plugin availability
+  const [isAvailable] = useState(() => isVisionPoseAvailable() && detectPosePlugin !== null);
   const [isDetected, setIsDetected] = useState(false);
   const [torsoCenter, setTorsoCenter] = useState<TorsoCenter | null>(null);
   const [confidence, setConfidence] = useState(0);
@@ -81,25 +92,35 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
   const lastFpsUpdateRef = useRef(Date.now());
   const gateCrossedRef = useRef(false);
 
-  // Handle detection result from worklet
-  const handleDetectionResult = useCallback((result: PoseDetectionResult, frameWidth: number) => {
-    if (!result.detected || result.confidence < minConfidence * 100) {
+  // Handle detection result (receives primitive values)
+  const handleDetectionResult = useCallback((
+    detected: boolean,
+    confidence: number,
+    torsoX: number,
+    torsoY: number,
+    timestamp: number,
+    processingTime: number,
+    frameWidth: number
+  ) => {
+    if (!detected || confidence < minConfidence * 100) {
       setIsDetected(false);
       setTorsoCenter(null);
       setConfidence(0);
       return;
     }
 
+    const torso: TorsoCenter = { x: torsoX, y: torsoY };
+
     setIsDetected(true);
-    setTorsoCenter(result.torsoCenter);
-    setConfidence(result.confidence);
-    setProcessingTimeMs(result.processingTimeMs);
+    setTorsoCenter(torso);
+    setConfidence(confidence);
+    setProcessingTimeMs(processingTime);
 
     // Calculate velocity
     if (previousTorsoRef.current && previousTimestampRef.current) {
-      const deltaTime = result.timestamp - previousTimestampRef.current;
+      const deltaTime = timestamp - previousTimestampRef.current;
       const vel = calculateTorsoVelocity(
-        result.torsoCenter,
+        torso,
         previousTorsoRef.current,
         deltaTime,
         frameWidth
@@ -108,16 +129,8 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
     }
 
     // Check for gate crossing
-    if (
-      result.torsoCenter &&
-      previousXRef.current !== null &&
-      !gateCrossedRef.current
-    ) {
-      const crossed = detectGateCrossing(
-        result.torsoCenter,
-        gateLineX,
-        previousXRef.current
-      );
+    if (previousXRef.current !== null && !gateCrossedRef.current) {
+      const crossed = detectGateCrossing(torso, gateLineX, previousXRef.current);
 
       if (crossed) {
         gateCrossedRef.current = true;
@@ -125,20 +138,20 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
         // Calculate precise crossing time with sub-frame interpolation
         const crossingTime = interpolateCrossingTime(
           previousXRef.current,
-          result.torsoCenter.x,
+          torsoX,
           gateLineX,
-          previousTimestampRef.current || result.timestamp,
-          result.timestamp
+          previousTimestampRef.current || timestamp,
+          timestamp
         );
 
-        onGateCrossing?.(crossingTime, result.confidence);
+        onGateCrossing?.(crossingTime, confidence);
       }
     }
 
     // Update previous values
-    previousTorsoRef.current = result.torsoCenter;
-    previousXRef.current = result.torsoCenter?.x ?? null;
-    previousTimestampRef.current = result.timestamp;
+    previousTorsoRef.current = torso;
+    previousXRef.current = torsoX;
+    previousTimestampRef.current = timestamp;
 
     // Update FPS
     frameCountRef.current++;
@@ -150,31 +163,46 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
     }
   }, [gateLineX, minConfidence, onGateCrossing]);
 
+  // Handle JSON result from native plugin (parses JSON and calls handleDetectionResult)
+  const handleJsonResult = useCallback((jsonString: string, frameWidth: number) => {
+    try {
+      const data = JSON.parse(jsonString);
+      handleDetectionResult(
+        Boolean(data.detected),
+        Number(data.confidence) || 0,
+        Number(data.torsoX) || 0,
+        Number(data.torsoY) || 0,
+        Number(data.timestamp) || 0,
+        Number(data.processingTimeMs) || 0,
+        frameWidth
+      );
+    } catch (e) {
+      // Invalid JSON, ignore
+    }
+  }, [handleDetectionResult]);
+
   // Frame processor for Vision Camera
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
 
     if (!enabled) return;
+    if (!detectPosePlugin) {
+      return;
+    }
 
     try {
-      // Get the detectPose plugin (registered by native module)
-      // @ts-ignore - Plugin is registered at runtime
-      const detectPose = global.__detectPose;
+      // Call the native detectPose frame processor plugin
+      // Returns JSON string to bypass worklet serialization issues
+      const jsonResult = detectPosePlugin.call(frame) as string;
 
-      if (!detectPose) {
-        // Plugin not available (Expo Go or not initialized)
-        return;
+      if (jsonResult && typeof jsonResult === 'string') {
+        // Parse JSON on JS thread to avoid worklet issues
+        runOnJS(handleJsonResult)(jsonResult, frame.width);
       }
-
-      // Run pose detection on frame
-      const result = detectPose(frame) as PoseDetectionResult;
-
-      // Send result to JS thread
-      runOnJS(handleDetectionResult)(result, frame.width);
-    } catch (error) {
-      // Detection failed, ignore
+    } catch (error: unknown) {
+      // Silently ignore frame processor errors to avoid log spam
     }
-  }, [enabled, handleDetectionResult]);
+  }, [enabled, handleJsonResult]);
 
   // Reset function
   const reset = useCallback(() => {

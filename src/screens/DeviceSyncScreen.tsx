@@ -37,6 +37,10 @@ export function DeviceSyncScreen() {
   const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
   const SyncCard = useGlassUI ? GlassCard : Card;
 
+  // Theme-aware selection colors
+  const selectedBg = isDark ? colors.primary[900] : colors.primary[50];
+  const selectedTextColor = isDark ? colors.primary[300] : colors.primary[600];
+
   // Get configured gates from current session
   const { currentSession, updateSession } = useSessionStore();
   const configuredGates = useMemo(() => {
@@ -244,7 +248,7 @@ export function DeviceSyncScreen() {
                       style={[
                         styles.gateOption,
                         { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                        isSelected && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                        isSelected && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                         isAssigned && !isSelected && { opacity: 0.6 },
                       ]}
                       onPress={() => selectConfiguredGate(gate)}
@@ -270,7 +274,7 @@ export function DeviceSyncScreen() {
                           style={[
                             styles.gateDistanceText,
                             { color: colors.text.primary },
-                            isSelected && { color: colors.primary[600] },
+                            isSelected && { color: selectedTextColor },
                           ]}
                         >
                           {gate.distance_m}m
@@ -299,7 +303,7 @@ export function DeviceSyncScreen() {
                     style={[
                       styles.roleOption,
                       { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                      deviceRole === role.value && { borderColor: colors.primary[500], backgroundColor: colors.primary[50] },
+                      deviceRole === role.value && { borderColor: colors.primary[500], backgroundColor: selectedBg },
                     ]}
                     onPress={() => {
                       setDeviceRole(role.value);
@@ -316,7 +320,7 @@ export function DeviceSyncScreen() {
                       style={[
                         styles.roleLabel,
                         { color: colors.text.primary },
-                        deviceRole === role.value && { color: colors.primary[600] },
+                        deviceRole === role.value && { color: selectedTextColor },
                       ]}
                     >
                       {role.label}

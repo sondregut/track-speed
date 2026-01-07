@@ -15,6 +15,10 @@ interface SettingsScreenProps {
 
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const { colors, isDark } = useTheme();
+
+  // Selected option background - lighter in light mode, darker tint in dark mode
+  const selectedOptionBg = isDark ? colors.primary[900] : colors.primary[50];
+  const selectedOptionTextColor = isDark ? colors.primary[300] : colors.primary[600];
   const {
     ghostGate,
     timing,
@@ -283,7 +287,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       { borderColor: colors.border.primary },
                       units.velocity === unit && {
                         borderColor: colors.primary[500],
-                        backgroundColor: colors.primary[50],
+                        backgroundColor: selectedOptionBg,
                       },
                     ]}
                     onPress={() => updateUnits({ velocity: unit })}
@@ -292,7 +296,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       style={[
                         styles.unitOptionText,
                         { color: colors.text.secondary },
-                        units.velocity === unit && { color: colors.primary[600] },
+                        units.velocity === unit && { color: selectedOptionTextColor },
                       ]}
                     >
                       {unit}
@@ -317,7 +321,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       { borderColor: colors.border.primary },
                       units.distance === option.value && {
                         borderColor: colors.primary[500],
-                        backgroundColor: colors.primary[50],
+                        backgroundColor: selectedOptionBg,
                       },
                     ]}
                     onPress={() => updateUnits({ distance: option.value })}
@@ -326,7 +330,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       style={[
                         styles.unitOptionText,
                         { color: colors.text.secondary },
-                        units.distance === option.value && { color: colors.primary[600] },
+                        units.distance === option.value && { color: selectedOptionTextColor },
                       ]}
                     >
                       {option.label}

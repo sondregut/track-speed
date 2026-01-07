@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 import { spacing, borderRadius, typography, darkColors } from '../constants/theme';
 import { useTheme } from '../contexts';
 import { CameraPreview, GateLine, PoseOverlay } from '../components/camera';
@@ -34,7 +34,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const autoTiming = useAutoTiming(0.7); // Gate at 70% of screen height
 
   // Sound detection for clap/gun start
-  const soundDetection = useSoundDetection({ threshold: 0.75 });
+  const soundDetection = useSoundDetection({ threshold: 0.25 });
 
   // Multi-device sync (declare before handleGateCrossing which uses it)
   const sync = useSyncConnection({ deviceName: Platform.OS === 'ios' ? 'iPhone' : 'Android' });
@@ -115,6 +115,16 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
   // Always use manual timer for state - Vision pose just triggers the stop
   const state = useMockAutoDetection ? autoTiming.timerState : manualTimer.state;
+
+  // Debug: log session state
+  useEffect(() => {
+    console.log('Session debug:', {
+      hasSession: !!currentSession,
+      startMethod: currentSession?.startMethod,
+      useSoundStart,
+      timerState: state,
+    });
+  }, [currentSession, useSoundStart, state]);
   const elapsedTime = useMockAutoDetection ? autoTiming.elapsedTime : manualTimer.elapsedTime;
   const isRunning = state === 'running';
 
@@ -122,16 +132,31 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
 
+  // Select format that supports high FPS for better timing accuracy
+  const format = useCameraFormat(device, [
+    { fps: 60 },
+    { videoResolution: { width: 1920, height: 1080 } },
+  ]);
+
+  // Use the format's max FPS (capped at 60)
+  const targetFps = format ? Math.min(format.maxFps, 60) : 30;
+
   const [cameraReady, setCameraReady] = useState(false);
   const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
 
-  // Sound detection trigger
+  // Sound detection trigger - when sound detected in ready state, START the timer
   useEffect(() => {
     if (useSoundStart && soundDetection.soundDetected && state === 'ready') {
-      handleStart();
+      console.log('Sound detected! Starting timer...');
+      // Record start time for pose detection
+      timerStartTimeRef.current = Date.now();
+      // Actually start the timer now
+      trigger('medium');
+      play('start');
+      manualTimer.start(timingSettings.defaultStartMethod);
       soundDetection.resetDetection();
     }
-  }, [soundDetection.soundDetected, useSoundStart, state]);
+  }, [soundDetection.soundDetected, useSoundStart, state, manualTimer, trigger, play, timingSettings.defaultStartMethod]);
 
   // Start sound detection when in ready state
   useEffect(() => {
@@ -198,6 +223,19 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const lastResult = results.length > 0 ? results[results.length - 1] : null;
 
   const handleStart = useCallback(() => {
+    // For sound detection mode, go to 'ready' state and wait for sound
+    if (useSoundStart) {
+      console.log('Sound mode: Setting state to ready, waiting for sound...');
+      // Reset Vision pose tracking
+      if (useNativeVision) {
+        visionPose.reset();
+      }
+      // Set to ready state - sound detection will start listening
+      manualTimer.setState('ready');
+      trigger('light');
+      return;
+    }
+
     // Record start time for Vision pose detection
     timerStartTimeRef.current = Date.now();
 
@@ -218,7 +256,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       play('start');
       manualTimer.start(timingSettings.defaultStartMethod);
     }
-  }, [useNativeVision, useMockAutoDetection, visionPose, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
+  }, [useNativeVision, useMockAutoDetection, useSoundStart, visionPose, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
 
   // Manual stop - always available as override even when auto-detection is on
   const handleStop = useCallback(() => {
@@ -320,9 +358,10 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
           <Camera
             style={StyleSheet.absoluteFill}
             device={device}
+            format={format}
             isActive={true}
             frameProcessor={visionPose.frameProcessor}
-            fps={60}
+            fps={targetFps}
             onInitialized={handleCameraReady}
           />
           {/* Gate Line Overlay - at 50% (center) for Vision pose */}

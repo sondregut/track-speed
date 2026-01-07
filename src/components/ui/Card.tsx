@@ -16,7 +16,7 @@ export function Card({
   padding = 'medium',
   style,
 }: CardProps) {
-  const { colors, shadows } = useTheme();
+  const { colors, shadows, isDark } = useTheme();
 
   const getVariantStyle = (): ViewStyle => {
     switch (variant) {
@@ -25,6 +25,8 @@ export function Card({
           backgroundColor: colors.card.background,
           borderWidth: 1,
           borderColor: colors.border.primary,
+          // Add subtle shadow in light mode for better visibility
+          ...(isDark ? {} : shadows.sm),
         };
       case 'elevated':
         return {

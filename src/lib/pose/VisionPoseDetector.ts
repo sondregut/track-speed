@@ -29,8 +29,8 @@ export interface TorsoLandmarks {
 export interface TorsoCenter {
   x: number;
   y: number;
-  leanAngle: number;
-  leanFactor: number;
+  leanAngle?: number;
+  leanFactor?: number;
 }
 
 export interface PoseDetectionResult {

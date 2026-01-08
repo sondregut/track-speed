@@ -6,6 +6,99 @@ This file tracks all development progress and completed work. **Update this log 
 
 ## 2026-01-07
 
+### Session 14: Finish Photo Capture & Distance Configuration
+
+#### Completed Tasks
+
+**1. Finish Photo Capture** (`src/screens/TimerScreen.tsx`)
+- Added camera ref for photo capture functionality
+- Implemented `captureFinishPhoto()` function using react-native-vision-camera's `takeSnapshot()`
+- Uses expo-file-system new API (`File`, `Directory`, `Paths` classes)
+- Saves photos to `documents/photos/` directory
+- Automatically captures photo when timer stops
+- Updates result with photo URI using `updateResult()`
+- Photos display in `RunResultScreen` instead of placeholder
+
+**2. Distance Configuration** (`src/screens/TimerScreen.tsx`)
+- Added `DISTANCE_OPTIONS` constant: 10, 20, 30, 40, 50, 60, 100 meters
+- Added `selectedDistance` state with default of 40m
+- Created distance selector button with current distance display
+- Implemented distance picker modal with tap-to-select options
+- Distance is passed to `stopTimer()` and stored with results
+- Distance is used to calculate velocity (m/s) for each run
+- Disabled distance change while timer is running
+
+#### Technical Details
+- Uses `takeSnapshot()` for faster capture (no flash, no shutter sound)
+- Photo files named: `finish_{resultId}_{timestamp}.jpg`
+- Files saved with 85% JPEG quality
+- Distance selector disabled during active runs to prevent accidental changes
+
+#### Files Modified
+- `src/screens/TimerScreen.tsx` - Added photo capture and distance picker
+
+---
+
+### Session 13: Simplified Session Setup - Freelap-Style Wizard
+
+#### Completed Tasks
+
+**1. New Types for Simplified Setup** (`src/types/index.ts`)
+- Added `SimpleStartMethod` type: `'sound' | 'thumb' | 'gate'`
+- Added `PhoneRole` type: `'start' | 'finish' | 'lap' | 'start_finish'`
+- Added `QuickSetupConfig` interface for simplified session configuration
+- Added helper functions: `getMinPhonesForStartMethod()`, `isStartFinishPhone()`
+- Updated navigation types to support `quickSetup` param on Timer screen
+
+**2. Setup Wizard Components** (`src/components/setup/`)
+- Created `StartMethodPicker.tsx` - Choose how to start the timer:
+  - Sound (1 phone): Clap/gun starts, run through same phone to finish
+  - Thumb (2+ phones): Hold thumb on start phone, run through finish phone
+  - Gate (2+ phones): Run through start gate, then finish gate
+- Created `GateCountPicker.tsx` - Configure number of gates and distances:
+  - Dynamic gate count (+/-) based on start method
+  - Finish distance selection (30, 40, 50, 60, 100m)
+  - Lap gate distance inputs with validation
+  - Visual gate layout diagram
+- Created `PhoneConnector.tsx` - Connect and assign phones to gates:
+  - This phone role selector
+  - Gate assignments display
+  - Bluetooth device scanning and connection
+  - Device-to-role assignment
+
+**3. Rewrote SessionSetupScreen** (`src/screens/SessionSetupScreen.tsx`)
+- Complete rewrite with 3-step wizard flow:
+  1. Choose start method
+  2. Configure gates
+  3. Connect phones (if multi-phone)
+- Step indicator with progress dots
+- Automatic step adjustment based on configuration
+- Passes `QuickSetupConfig` to Timer screen
+
+#### Files Created
+- `src/components/setup/StartMethodPicker.tsx`
+- `src/components/setup/GateCountPicker.tsx`
+- `src/components/setup/PhoneConnector.tsx`
+- `src/components/setup/index.ts`
+
+#### Files Modified
+- `src/types/index.ts` - Added SimpleStartMethod, PhoneRole, QuickSetupConfig
+- `src/types/navigation.ts` - Added quickSetup to Timer params
+- `src/screens/SessionSetupScreen.tsx` - Complete rewrite
+
+#### Start Method Logic
+| Method | Min Phones | How it works |
+|--------|-----------|--------------|
+| Sound | 1 | Clap starts timer, run through same phone to finish |
+| Thumb | 2 | Hold thumb on start phone, run through finish phone |
+| Gate | 2 | Run through start gate phone, then finish gate phone |
+
+#### Next Steps
+- Update TimerScreen to use QuickSetupConfig for role-based UI
+- Test new setup flow with real multi-phone scenarios
+
+---
+
 ### Session 12: Bluetooth Multi-Phone Sync - UI Components & Results Aggregation
 
 #### Completed Tasks

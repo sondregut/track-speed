@@ -121,6 +121,7 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
   const gateCrossedValue = useSharedValue(false);
   const lastUpdateValue = useSharedValue(0);
   const previousXValue = useSharedValue(-1); // -1 means no previous value
+  const previousTimestampValue = useSharedValue(0); // For interpolation
   const manualCaptureValue = useSharedValue(false); // Trigger manual capture
   const startFrameBufferCaptureValue = useSharedValue(false); // Trigger frame buffer capture
 
@@ -282,9 +283,24 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
         if (crossedLeftToRight || crossedRightToLeft) {
           gateCrossedValue.value = true;
 
-          // Notify crossing
+          // Calculate interpolated crossing time for sub-frame accuracy
+          // This is the key to achieving ±0.01s accuracy like Photo Finish
+          const prevX = currentPrevX;
+          const prevTimestamp = previousTimestampValue.value;
+          let crossingTimeMs = timestamp;
+
+          if (prevTimestamp > 0 && Math.abs(torsoX - prevX) > 0.0001) {
+            // Linear interpolation: find exact moment chest crossed gate
+            const totalDistance = torsoX - prevX;
+            const distanceToGate = gateLineX - prevX;
+            const factor = Math.max(0, Math.min(1, distanceToGate / totalDistance));
+            const deltaTime = timestamp - prevTimestamp;
+            crossingTimeMs = prevTimestamp + deltaTime * factor;
+          }
+
+          // Notify crossing with interpolated time
           if (onGateCrossedJS) {
-            onGateCrossedJS(timestamp, conf);
+            onGateCrossedJS(crossingTimeMs, conf);
           }
 
           // Trigger frame buffer capture for review (if enabled)
@@ -302,8 +318,9 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
         }
       }
 
-      // Update previous position
+      // Update previous position and timestamp for next frame's interpolation
       previousXValue.value = torsoX;
+      previousTimestampValue.value = timestamp;
     }
 
     // Handle manual capture request (independent of gate crossing)
@@ -322,19 +339,20 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
       const aiFrameIndex = extractNumber('"aiFrameIndex":');
       onFrameBufferReadyJS(frameBufferPath, frameCount, aiFrameIndex);
     }
-  }, [gateLineX, minConfidence, cameraPosition, debug, captureOnCrossing, enableFrameBuffer, onGateCrossedJS, onCrossingFrameJS, onFrameBufferReadyJS, onStatusUpdateJS, gateCrossedValue, lastUpdateValue, previousXValue, manualCaptureValue, startFrameBufferCaptureValue]);
+  }, [gateLineX, minConfidence, cameraPosition, debug, captureOnCrossing, enableFrameBuffer, onGateCrossedJS, onCrossingFrameJS, onFrameBufferReadyJS, onStatusUpdateJS, gateCrossedValue, lastUpdateValue, previousXValue, previousTimestampValue, manualCaptureValue, startFrameBufferCaptureValue]);
 
   // Reset function
   const reset = useCallback(() => {
     gateCrossedValue.value = false;
     previousXValue.value = -1;
+    previousTimestampValue.value = 0;
     manualCaptureValue.value = false;
     startFrameBufferCaptureValue.value = false;
     setIsDetected(false);
     setTorsoCenter(null);
     setConfidence(0);
     setVelocity(0);
-  }, [gateCrossedValue, previousXValue, manualCaptureValue, startFrameBufferCaptureValue]);
+  }, [gateCrossedValue, previousXValue, previousTimestampValue, manualCaptureValue, startFrameBufferCaptureValue]);
 
   // Manual capture function - triggers capture on next frame
   const manualCapture = useCallback(() => {
@@ -345,7 +363,8 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
   useEffect(() => {
     gateCrossedValue.value = false;
     previousXValue.value = -1;
-  }, [gateLineX, gateCrossedValue, previousXValue]);
+    previousTimestampValue.value = 0;
+  }, [gateLineX, gateCrossedValue, previousXValue, previousTimestampValue]);
 
   return {
     isAvailable,

@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trackspeed.app",
+      "bundleIdentifier": "app.trackspeed.ios",
       "infoPlist": {
         "NSCameraUsageDescription": "Track Speed needs camera access to detect finish line crossings.",
         "NSMicrophoneUsageDescription": "Track Speed can use the microphone to detect starting gun sounds.",
@@ -40,7 +40,7 @@
         "backgroundColor": "#0F172A"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.trackspeed.app",
+      "package": "app.trackspeed.ios",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

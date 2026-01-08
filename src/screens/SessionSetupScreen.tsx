@@ -1,247 +1,271 @@
-import React, { useState, useMemo } from 'react';
+/**
+ * SessionSetupScreen - Simplified Freelap-style setup wizard
+ *
+ * Three-step flow:
+ * 1. Choose start method (Sound, Thumb, Gate)
+ * 2. Configure gates (count, distances)
+ * 3. Connect phones (if multi-phone)
+ */
+
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   TouchableOpacity,
-  Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
-import { spacing, typography, borderRadius } from '../constants/theme';
-import { Header, Button, Card, GlassCard } from '../components/ui';
-import { useSessionStore, useSettingsStore } from '../stores';
-import {
-  SessionType,
-  StartMethod,
+import { spacing, typography, borderRadius, colors } from '../constants/theme';
+import { Header, Button } from '../components/ui';
+import { StartMethodPicker, GateCountPicker, PhoneConnector } from '../components/setup';
+import { useSessionStore } from '../stores';
+import { useBluetoothSync } from '../hooks';
+import type {
+  SimpleStartMethod,
+  PhoneRole,
+  QuickSetupConfig,
   GateConfig,
   GateRole,
-  FLYING_DISTANCES,
-  FLY_IN_DISTANCES,
-  STANDARD_DISTANCES,
 } from '../types';
 
-// ============================================
-// Session Type Configurations
-// ============================================
+type SetupStep = 'start' | 'gates' | 'connect';
 
-const SESSION_TYPES: {
-  value: SessionType;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: 'flying',
-    label: 'Flying',
-    description: 'Max velocity',
-  },
-  {
-    value: 'standing',
-    label: 'Standing',
-    description: 'From stationary',
-  },
-  {
-    value: 'block_start',
-    label: 'Block',
-    description: 'Competition',
-  },
-];
+// Map simple start method to legacy start method
+function mapToLegacyStartMethod(method: SimpleStartMethod): 'sound_detection' | 'touch' | 'external_gate' {
+  switch (method) {
+    case 'sound': return 'sound_detection';
+    case 'thumb': return 'touch';
+    case 'gate': return 'external_gate';
+  }
+}
 
-const START_METHODS: {
-  value: StartMethod;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: 'ready_set_go',
-    label: 'Ready, Set, Go',
-    description: 'Coach says commands, taps on "Go"',
-  },
-  {
-    value: 'three_two_one',
-    label: 'Three, Two, One, Go',
-    description: 'Countdown then tap to start',
-  },
-  {
-    value: 'touch',
-    label: 'Touch',
-    description: 'Touch anywhere, release to start',
-  },
-  {
-    value: 'sound_detection',
-    label: 'Sound Detection',
-    description: 'Clap or starting gun triggers timer',
-  },
-];
+// Map PhoneRole to GateRole
+function mapPhoneRoleToGateRole(role: PhoneRole): GateRole {
+  switch (role) {
+    case 'start': return 'start';
+    case 'finish': return 'finish';
+    case 'lap': return 'lap';
+    case 'start_finish': return 'finish'; // For sound mode, the gate is finish
+  }
+}
 
 export function SessionSetupScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors: themeColors, isDark } = useTheme();
   const navigation = useNavigation();
   const { createSession } = useSessionStore();
-  const { timing } = useSettingsStore();
 
-  // Use Glass UI on iOS 26+ (adapts to light/dark via tintColor)
-  const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
-  const PreviewCard = useGlassUI ? GlassCard : Card;
+  // Bluetooth sync for multi-phone
+  const {
+    isScanning,
+    discoveredDevices,
+    connectedDevices,
+    startScan,
+    stopScan,
+  } = useBluetoothSync();
 
-  // Theme-aware selection colors
-  const selectedBg = isDark ? colors.primary[900] : colors.primary[50];
-  const selectedTextColor = isDark ? colors.primary[300] : colors.primary[600];
-  const lightBadgeBg = (baseColor: { 50?: string; 100: string; 900?: string }) =>
-    isDark ? (baseColor[900] || colors.background.tertiary) : baseColor[100];
-  const lightBadgeText = (baseColor: { 300?: string; 600: string }) =>
-    isDark ? (baseColor[300] || baseColor[600]) : baseColor[600];
+  // Wizard step
+  const [currentStep, setCurrentStep] = useState<SetupStep>('start');
 
-  // Form state
-  const [sessionName, setSessionName] = useState('');
-  const [location, setLocation] = useState('');
-  const [sessionType, setSessionType] = useState<SessionType>('flying');
-  const [startMethod, setStartMethod] = useState<StartMethod>(timing.defaultStartMethod);
+  // Setup state
+  const [startMethod, setStartMethod] = useState<SimpleStartMethod>('sound');
+  const [gateCount, setGateCount] = useState<number>(1);
+  const [totalDistance, setTotalDistance] = useState<number>(40);
+  const [lapDistances, setLapDistances] = useState<number[]>([]);
+  const [thisPhoneRole, setThisPhoneRole] = useState<PhoneRole>('start_finish');
+  const [deviceAssignments, setDeviceAssignments] = useState<Map<string, PhoneRole>>(new Map());
 
-  // Flying start config
-  const [flyingDistance, setFlyingDistance] = useState<number>(10);
-  const [flyInDistance, setFlyInDistance] = useState<number>(30);
+  // Adjust gate count and phone role when start method changes
+  const handleStartMethodChange = useCallback((method: SimpleStartMethod) => {
+    setStartMethod(method);
 
-  // Standing/Block start config
-  const [standardDistance, setStandardDistance] = useState<number>(30);
-
-  // Multi-gate splits config
-  const [splitsEnabled, setSplitsEnabled] = useState(false);
-  const [customGates, setCustomGates] = useState<GateConfig[]>([
-    { role: 'start', distance_m: 0 },
-    { role: 'finish', distance_m: 50 },
-  ]);
-  const [newGateDistance, setNewGateDistance] = useState('');
-
-  // Add a new lap gate
-  const addGate = () => {
-    const distance = parseInt(newGateDistance, 10);
-    if (isNaN(distance) || distance <= 0) return;
-
-    // Check if gate already exists at this distance
-    if (customGates.some(g => g.distance_m === distance)) return;
-
-    const newGate: GateConfig = { role: 'lap', distance_m: distance };
-    const updatedGates = [...customGates, newGate].sort((a, b) => a.distance_m - b.distance_m);
-
-    // Update roles based on position
-    const finalGates = updatedGates.map((gate, index) => ({
-      ...gate,
-      role: index === 0 ? 'start' as GateRole :
-            index === updatedGates.length - 1 ? 'finish' as GateRole :
-            'lap' as GateRole,
-    }));
-
-    setCustomGates(finalGates);
-    setNewGateDistance('');
-  };
-
-  // Remove a gate
-  const removeGate = (distance: number) => {
-    if (customGates.length <= 2) return; // Keep at least start and finish
-
-    const updatedGates = customGates.filter(g => g.distance_m !== distance);
-
-    // Update roles based on position
-    const finalGates = updatedGates.map((gate, index) => ({
-      ...gate,
-      role: index === 0 ? 'start' as GateRole :
-            index === updatedGates.length - 1 ? 'finish' as GateRole :
-            'lap' as GateRole,
-    }));
-
-    setCustomGates(finalGates);
-  };
-
-  // Update finish gate distance
-  const updateFinishDistance = (distance: number) => {
-    const updatedGates = customGates.map(gate =>
-      gate.role === 'finish' ? { ...gate, distance_m: distance } : gate
-    );
-    setCustomGates(updatedGates);
-  };
-
-  // Generate session name based on config
-  const generatedName = useMemo(() => {
-    if (sessionName.trim()) return sessionName.trim();
-
-    if (sessionType === 'flying') {
-      return `Flying ${flyingDistance}m`;
-    } else if (sessionType === 'standing') {
-      return `${standardDistance}m Standing`;
+    if (method === 'sound') {
+      setGateCount(1);
+      setThisPhoneRole('start_finish');
+      setLapDistances([]);
     } else {
-      return `${standardDistance}m Block Start`;
+      if (gateCount < 2) setGateCount(2);
+      setThisPhoneRole('finish'); // Default to finish for thumb/gate
     }
-  }, [sessionName, sessionType, flyingDistance, standardDistance]);
+  }, [gateCount]);
 
-  // Get effective distance for display
-  const effectiveDistance = sessionType === 'flying' ? flyingDistance : standardDistance;
+  // Adjust lap distances when gate count changes
+  const handleGateCountChange = useCallback((count: number) => {
+    setGateCount(count);
+
+    const lapCount = startMethod === 'sound' ? count - 1 : count - 2;
+
+    if (lapCount <= 0) {
+      setLapDistances([]);
+    } else if (lapCount > lapDistances.length) {
+      // Add new lap distances
+      const newDistances = [...lapDistances];
+      while (newDistances.length < lapCount) {
+        const prev = newDistances.length > 0 ? newDistances[newDistances.length - 1] : 0;
+        const next = newDistances.length > 0 ? totalDistance : totalDistance / 2;
+        newDistances.push(Math.round((prev + next) / 2));
+      }
+      setLapDistances(newDistances);
+    } else if (lapCount < lapDistances.length) {
+      // Remove excess lap distances
+      setLapDistances(lapDistances.slice(0, lapCount));
+    }
+  }, [startMethod, lapDistances, totalDistance]);
+
+  // Get steps for current configuration
+  const steps = useMemo((): SetupStep[] => {
+    const base: SetupStep[] = ['start', 'gates'];
+    // Add connect step if multi-phone (not sound with 1 gate)
+    const needsConnect = !(startMethod === 'sound' && gateCount === 1);
+    if (needsConnect) base.push('connect');
+    return base;
+  }, [startMethod, gateCount]);
+
+  const currentStepIndex = steps.indexOf(currentStep);
+  const isFirstStep = currentStepIndex === 0;
+  const isLastStep = currentStepIndex === steps.length - 1;
+
+  const handleNext = () => {
+    if (!isLastStep) {
+      setCurrentStep(steps[currentStepIndex + 1]);
+    }
+  };
+
+  const handleBack = () => {
+    if (!isFirstStep) {
+      setCurrentStep(steps[currentStepIndex - 1]);
+    } else {
+      navigation.goBack();
+    }
+  };
+
+  // Build gate configuration for session
+  const buildGateConfig = (): GateConfig[] => {
+    const gates: GateConfig[] = [];
+
+    // Start gate (0m)
+    gates.push({
+      role: 'start',
+      distance_m: 0,
+    });
+
+    // Lap gates
+    lapDistances.forEach((distance) => {
+      gates.push({
+        role: 'lap',
+        distance_m: distance,
+      });
+    });
+
+    // Finish gate
+    gates.push({
+      role: 'finish',
+      distance_m: totalDistance,
+    });
+
+    return gates;
+  };
 
   const handleStartSession = () => {
-    const session: Parameters<typeof createSession>[0] = {
-      name: generatedName,
-      location: location.trim() || undefined,
-      sessionType,
-      startMethod,
-    };
+    const gates = buildGateConfig();
 
-    if (sessionType === 'flying') {
-      session.flyingConfig = {
-        flyingDistance_m: flyingDistance,
-        flyInDistance_m: flyInDistance,
-      };
-      session.distance = flyingDistance; // Legacy field
-    } else {
-      session.standardConfig = {
-        totalDistance_m: standardDistance,
-      };
-      session.distance = standardDistance; // Legacy field
-    }
-
-    if (splitsEnabled && customGates.length >= 2) {
-      // Use custom gate configuration
-      const lapGates = customGates.filter(g => g.role === 'lap');
-      const finishGate = customGates.find(g => g.role === 'finish');
-
-      session.splitConfig = {
+    // Create session with new config
+    const session = createSession({
+      name: `${totalDistance}m Sprint`,
+      sessionType: 'standing',
+      startMethod: mapToLegacyStartMethod(startMethod),
+      distance: totalDistance,
+      standardConfig: {
+        totalDistance_m: totalDistance,
+      },
+      splitConfig: lapDistances.length > 0 ? {
         enabled: true,
-        distances_m: lapGates.map(g => g.distance_m),
-        gates: customGates,
-      };
+        distances_m: lapDistances,
+        gates,
+      } : undefined,
+    });
 
-      // Update distance to finish gate distance
-      if (finishGate) {
-        session.distance = finishGate.distance_m;
-        if (sessionType === 'flying' && session.flyingConfig) {
-          session.flyingConfig.flyingDistance_m = finishGate.distance_m;
-        } else if (session.standardConfig) {
-          session.standardConfig.totalDistance_m = finishGate.distance_m;
-        }
-      }
+    // Navigate to timer with role info
+    navigation.navigate('Timer', {
+      quickSetup: {
+        startMethod,
+        gateCount,
+        totalDistance_m: totalDistance,
+        gateDistances_m: [0, ...lapDistances, totalDistance],
+        thisPhoneRole,
+        gateDeviceIds: [], // Will be filled by Bluetooth
+      } as QuickSetupConfig,
+    });
+  };
+
+  // Connected devices for PhoneConnector
+  const connectedDeviceList = useMemo(() => {
+    return [...discoveredDevices, ...connectedDevices].map(d => ({
+      id: d.id,
+      name: d.name || 'Unknown Device',
+      role: deviceAssignments.get(d.id),
+      isConnected: connectedDevices.some(c => c.id === d.id),
+    }));
+  }, [discoveredDevices, connectedDevices, deviceAssignments]);
+
+  // Check if setup is complete
+  const isSetupComplete = useMemo(() => {
+    if (startMethod === 'sound' && gateCount === 1) {
+      return true; // Single phone sound mode is always ready
     }
 
-    createSession(session);
-    navigation.navigate('Timer' as never);
-  };
-
-  const handleConfigureGates = () => {
-    navigation.navigate('DeviceSync' as never);
-  };
+    const neededDevices = gateCount - 1; // This phone is one
+    const connectedCount = connectedDevices.length;
+    return connectedCount >= neededDevices;
+  }, [startMethod, gateCount, connectedDevices]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background.secondary }]}>
+    <View style={[styles.container, { backgroundColor: themeColors.background.secondary }]}>
       <Header
-        title="New Session"
+        title="Quick Setup"
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={[styles.cancelText, { color: colors.primary[500] }]}>Cancel</Text>
+          <TouchableOpacity onPress={handleBack}>
+            <Text style={[styles.navText, { color: themeColors.primary[500] }]}>
+              {isFirstStep ? 'Cancel' : 'Back'}
+            </Text>
           </TouchableOpacity>
         }
       />
+
+      {/* Step Indicator */}
+      <View style={styles.stepIndicator}>
+        {steps.map((step, index) => (
+          <React.Fragment key={step}>
+            <View
+              style={[
+                styles.stepDot,
+                {
+                  backgroundColor: index <= currentStepIndex
+                    ? colors.primary[500]
+                    : themeColors.background.tertiary,
+                },
+              ]}
+            >
+              <Text style={styles.stepNumber}>{index + 1}</Text>
+            </View>
+            {index < steps.length - 1 && (
+              <View
+                style={[
+                  styles.stepLine,
+                  {
+                    backgroundColor: index < currentStepIndex
+                      ? colors.primary[500]
+                      : themeColors.background.tertiary,
+                  },
+                ]}
+              />
+            )}
+          </React.Fragment>
+        ))}
+      </View>
 
       <ScrollView
         style={styles.scrollView}
@@ -249,476 +273,72 @@ export function SessionSetupScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Session Type */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Session Type</Text>
-          <View style={styles.typeGrid}>
-            {SESSION_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type.value}
-                style={[
-                  styles.typeCard,
-                  { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                  sessionType === type.value && {
-                    borderColor: colors.primary[500],
-                    backgroundColor: selectedBg,
-                  },
-                ]}
-                onPress={() => setSessionType(type.value)}
-              >
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    { color: colors.text.primary },
-                    sessionType === type.value && { color: selectedTextColor },
-                  ]}
-                >
-                  {type.label}
-                </Text>
-                <Text
-                  style={[
-                    styles.typeDescription,
-                    { color: colors.text.secondary },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {type.description}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Flying Start Configuration */}
-        {sessionType === 'flying' && (
-          <>
-            <View style={styles.section}>
-              <Text style={[styles.label, { color: colors.text.secondary }]}>Flying Distance (Timed Zone)</Text>
-              <View style={styles.optionsRow}>
-                {FLYING_DISTANCES.map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[
-                      styles.distanceOption,
-                      { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                      flyingDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
-                    ]}
-                    onPress={() => setFlyingDistance(d)}
-                  >
-                    <Text
-                      style={[
-                        styles.distanceText,
-                        { color: colors.text.secondary },
-                        flyingDistance === d && { color: selectedTextColor },
-                      ]}
-                    >
-                      {d}m
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={[styles.label, { color: colors.text.secondary }]}>Fly-In Distance (Acceleration Zone)</Text>
-              <Text style={[styles.hint, { color: colors.text.tertiary }]}>
-                Build up to max speed before timing starts
-              </Text>
-              <View style={styles.optionsRow}>
-                {FLY_IN_DISTANCES.map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[
-                      styles.distanceOption,
-                      { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                      flyInDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
-                    ]}
-                    onPress={() => setFlyInDistance(d)}
-                  >
-                    <Text
-                      style={[
-                        styles.distanceText,
-                        { color: colors.text.secondary },
-                        flyInDistance === d && { color: selectedTextColor },
-                      ]}
-                    >
-                      {d}m
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </>
+        {/* Step 1: Start Method */}
+        {currentStep === 'start' && (
+          <StartMethodPicker
+            selected={startMethod}
+            onSelect={handleStartMethodChange}
+          />
         )}
 
-        {/* Standing/Block Start Configuration */}
-        {(sessionType === 'standing' || sessionType === 'block_start') && (
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: colors.text.secondary }]}>Total Distance</Text>
-            <View style={styles.distanceGrid}>
-              {STANDARD_DISTANCES.map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.distanceGridItem,
-                    { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                    standardDistance === d && { borderColor: colors.primary[500], backgroundColor: selectedBg },
-                  ]}
-                  onPress={() => setStandardDistance(d)}
-                >
-                  <Text
-                    style={[
-                      styles.distanceText,
-                      { color: colors.text.secondary },
-                      standardDistance === d && { color: selectedTextColor },
-                    ]}
-                  >
-                    {d}m
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+        {/* Step 2: Gate Configuration */}
+        {currentStep === 'gates' && (
+          <GateCountPicker
+            startMethod={startMethod}
+            gateCount={gateCount}
+            onGateCountChange={handleGateCountChange}
+            totalDistance={totalDistance}
+            onTotalDistanceChange={setTotalDistance}
+            lapDistances={lapDistances}
+            onLapDistancesChange={setLapDistances}
+          />
         )}
 
-        {/* Start Method */}
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text.secondary }]}>Start Method</Text>
-          <View style={styles.methodsContainer}>
-            {START_METHODS.map((method) => (
-              <TouchableOpacity
-                key={method.value}
-                style={[
-                  styles.methodOption,
-                  { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-                  startMethod === method.value && { borderColor: colors.primary[500], backgroundColor: selectedBg },
-                ]}
-                onPress={() => setStartMethod(method.value)}
-              >
-                <View style={styles.methodContent}>
-                  <Text
-                    style={[
-                      styles.methodLabel,
-                      { color: colors.text.primary },
-                      startMethod === method.value && { color: selectedTextColor },
-                    ]}
-                  >
-                    {method.label}
-                  </Text>
-                  <Text style={[styles.methodDescription, { color: colors.text.secondary }]}>
-                    {method.description}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.radio,
-                    { borderColor: colors.border.secondary },
-                    startMethod === method.value && { borderColor: colors.primary[500] },
-                  ]}
-                >
-                  {startMethod === method.value && (
-                    <View style={[styles.radioInner, { backgroundColor: colors.primary[500] }]} />
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Multi-Gate Configuration */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={[
-              styles.toggleRow,
-              { backgroundColor: colors.card.background, borderColor: colors.border.primary },
-            ]}
-            onPress={() => setSplitsEnabled(!splitsEnabled)}
-          >
-            <View style={styles.toggleContent}>
-              <Text style={[styles.toggleLabel, { color: colors.text.primary }]}>
-                Multi-Phone Timing
-              </Text>
-              <Text style={[styles.toggleDescription, { color: colors.text.secondary }]}>
-                Use multiple phones as Start, Lap, and Finish gates
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.toggle,
-                { backgroundColor: splitsEnabled ? colors.primary[500] : (isDark ? colors.gray[600] : colors.gray[300]) },
-              ]}
-            >
-              <View
-                style={[
-                  styles.toggleThumb,
-                  { transform: [{ translateX: splitsEnabled ? 20 : 0 }] },
-                ]}
-              />
-            </View>
-          </TouchableOpacity>
-
-          {splitsEnabled && (
-            <Card variant="default" style={styles.gateEditorCard}>
-              <Text style={[styles.gateEditorTitle, { color: colors.text.primary }]}>
-                Gate Positions
-              </Text>
-              <Text style={[styles.gateEditorHint, { color: colors.text.secondary }]}>
-                Place phones at these distances from start
-              </Text>
-
-              {/* Gate List */}
-              <View style={styles.gateList}>
-                {customGates.map((gate, index) => (
-                  <View
-                    key={`${gate.role}-${gate.distance_m}`}
-                    style={[styles.gateItem, { borderColor: colors.border.primary }]}
-                  >
-                    <View
-                      style={[
-                        styles.gateRoleBadge,
-                        {
-                          backgroundColor:
-                            gate.role === 'start' ? colors.success[500] :
-                            gate.role === 'finish' ? colors.error[500] :
-                            colors.primary[500],
-                        },
-                      ]}
-                    >
-                      <Text style={styles.gateRoleText}>
-                        {gate.role.charAt(0).toUpperCase() + gate.role.slice(1)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.gateDistance, { color: colors.text.primary }]}>
-                      {gate.distance_m}m
-                    </Text>
-                    {gate.role === 'lap' && (
-                      <TouchableOpacity
-                        style={[styles.gateRemoveButton, { backgroundColor: isDark ? colors.background.tertiary : colors.error[100] }]}
-                        onPress={() => removeGate(gate.distance_m)}
-                      >
-                        <Text style={[styles.gateRemoveText, { color: colors.error[500] }]}>X</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))}
-              </View>
-
-              {/* Add Gate */}
-              <View style={styles.addGateRow}>
-                <TextInput
-                  style={[
-                    styles.addGateInput,
-                    {
-                      backgroundColor: colors.card.background,
-                      color: colors.text.primary,
-                      borderColor: colors.border.primary,
-                    },
-                  ]}
-                  value={newGateDistance}
-                  onChangeText={setNewGateDistance}
-                  placeholder="Distance (m)"
-                  placeholderTextColor={colors.text.tertiary}
-                  keyboardType="number-pad"
-                />
-                <TouchableOpacity
-                  style={[styles.addGateButton, { backgroundColor: colors.primary[500] }]}
-                  onPress={addGate}
-                >
-                  <Text style={styles.addGateButtonText}>Add Lap Gate</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Quick Add Buttons */}
-              <View style={styles.quickAddRow}>
-                <Text style={[styles.quickAddLabel, { color: colors.text.secondary }]}>Quick add:</Text>
-                {[10, 20, 30, 40].map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[
-                      styles.quickAddButton,
-                      { borderColor: colors.border.primary },
-                      customGates.some(g => g.distance_m === d) && { opacity: 0.5 },
-                    ]}
-                    onPress={() => {
-                      setNewGateDistance(d.toString());
-                      setTimeout(addGate, 50);
-                    }}
-                    disabled={customGates.some(g => g.distance_m === d)}
-                  >
-                    <Text style={[styles.quickAddText, { color: colors.text.secondary }]}>{d}m</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Update Finish Distance */}
-              <View style={styles.finishDistanceRow}>
-                <Text style={[styles.finishDistanceLabel, { color: colors.text.secondary }]}>
-                  Finish at:
-                </Text>
-                <View style={styles.finishOptions}>
-                  {[30, 40, 50, 60, 100].map((d) => (
-                    <TouchableOpacity
-                      key={d}
-                      style={[
-                        styles.finishOption,
-                        { borderColor: colors.border.primary },
-                        customGates.find(g => g.role === 'finish')?.distance_m === d && {
-                          borderColor: colors.primary[500],
-                          backgroundColor: selectedBg,
-                        },
-                      ]}
-                      onPress={() => updateFinishDistance(d)}
-                    >
-                      <Text
-                        style={[
-                          styles.finishOptionText,
-                          { color: colors.text.secondary },
-                          customGates.find(g => g.role === 'finish')?.distance_m === d && {
-                            color: selectedTextColor,
-                          },
-                        ]}
-                      >
-                        {d}m
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Link to Device Sync */}
-              <TouchableOpacity
-                style={[styles.configureButton, { borderColor: colors.primary[500], marginTop: spacing.md }]}
-                onPress={handleConfigureGates}
-              >
-                <Text style={[styles.configureButtonText, { color: colors.primary[500] }]}>
-                  Connect Phones to Gates
-                </Text>
-              </TouchableOpacity>
-            </Card>
-          )}
-        </View>
-
-        {/* Session Name (optional) */}
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text.secondary }]}>Session Name (optional)</Text>
-          <TextInput
-            style={[styles.input, {
-              backgroundColor: colors.card.background,
-              color: colors.text.primary,
-              borderColor: colors.border.primary
-            }]}
-            value={sessionName}
-            onChangeText={setSessionName}
-            placeholder={generatedName}
-            placeholderTextColor={colors.text.tertiary}
+        {/* Step 3: Phone Connection */}
+        {currentStep === 'connect' && (
+          <PhoneConnector
+            startMethod={startMethod}
+            gateCount={gateCount}
+            thisPhoneRole={thisPhoneRole}
+            onThisPhoneRoleChange={setThisPhoneRole}
+            connectedDevices={connectedDeviceList}
+            isScanning={isScanning}
+            onStartScan={() => startScan()}
+            onStopScan={() => stopScan()}
+            onAssignRole={(deviceId, role) => {
+              const newAssignments = new Map(deviceAssignments);
+              newAssignments.set(deviceId, role);
+              setDeviceAssignments(newAssignments);
+            }}
+            lapDistances={lapDistances}
+            totalDistance={totalDistance}
           />
-        </View>
-
-        {/* Location (optional) */}
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text.secondary }]}>Location (optional)</Text>
-          <TextInput
-            style={[styles.input, {
-              backgroundColor: colors.card.background,
-              color: colors.text.primary,
-              borderColor: colors.border.primary
-            }]}
-            value={location}
-            onChangeText={setLocation}
-            placeholder="e.g., Track Field"
-            placeholderTextColor={colors.text.tertiary}
-          />
-        </View>
-
-        {/* Session Preview */}
-        <PreviewCard variant="elevated" style={styles.previewCard}>
-          <Text style={[styles.previewTitle, { color: colors.text.secondary }]}>Session Preview</Text>
-          <View style={styles.previewRow}>
-            <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Type</Text>
-            <Text style={[styles.previewValue, { color: colors.text.primary }]}>
-              {SESSION_TYPES.find((t) => t.value === sessionType)?.label}
-            </Text>
-          </View>
-          {sessionType === 'flying' ? (
-            <>
-              <View style={styles.previewRow}>
-                <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Timed Zone</Text>
-                <Text style={[styles.previewValue, { color: colors.text.primary }]}>{flyingDistance}m</Text>
-              </View>
-              <View style={styles.previewRow}>
-                <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Fly-In</Text>
-                <Text style={[styles.previewValue, { color: colors.text.primary }]}>{flyInDistance}m</Text>
-              </View>
-              <View style={styles.previewRow}>
-                <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Total Run</Text>
-                <Text style={[styles.previewValue, { color: colors.primary[600] }]}>
-                  {flyInDistance + flyingDistance}m
-                </Text>
-              </View>
-            </>
-          ) : (
-            <View style={styles.previewRow}>
-              <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Distance</Text>
-              <Text style={[styles.previewValue, { color: colors.text.primary }]}>{standardDistance}m</Text>
-            </View>
-          )}
-          <View style={styles.previewRow}>
-            <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Start</Text>
-            <Text style={[styles.previewValue, { color: colors.text.primary }]}>
-              {START_METHODS.find((m) => m.value === startMethod)?.label}
-            </Text>
-          </View>
-          {splitsEnabled && (
-            <>
-              <View style={styles.previewRow}>
-                <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Multi-Phone</Text>
-                <Text style={[styles.previewValue, { color: colors.primary[600] }]}>
-                  {customGates.length} gates
-                </Text>
-              </View>
-              <View style={styles.previewGates}>
-                {customGates.map((gate) => (
-                  <View
-                    key={`preview-${gate.distance_m}`}
-                    style={[
-                      styles.previewGateBadge,
-                      {
-                        backgroundColor:
-                          gate.role === 'start' ? lightBadgeBg(colors.success) :
-                          gate.role === 'finish' ? lightBadgeBg(colors.error) :
-                          lightBadgeBg(colors.primary),
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.previewGateText,
-                        {
-                          color:
-                            gate.role === 'start' ? lightBadgeText(colors.success) :
-                            gate.role === 'finish' ? lightBadgeText(colors.error) :
-                            lightBadgeText(colors.primary),
-                        },
-                      ]}
-                    >
-                      {gate.distance_m}m
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-        </PreviewCard>
+        )}
       </ScrollView>
 
-      {/* Start Button */}
-      <SafeAreaView edges={['bottom']} style={[styles.footer, { borderTopColor: colors.border.primary, backgroundColor: colors.background.primary }]}>
-        <Button
-          title="Start Session"
-          onPress={handleStartSession}
-          size="large"
-          style={{ backgroundColor: colors.timing.ready }}
-        />
+      {/* Footer with navigation buttons */}
+      <SafeAreaView
+        edges={['bottom']}
+        style={[
+          styles.footer,
+          { borderTopColor: themeColors.border.primary, backgroundColor: themeColors.background.primary },
+        ]}
+      >
+        {isLastStep ? (
+          <Button
+            title="Start Session"
+            onPress={handleStartSession}
+            size="large"
+            style={{ backgroundColor: colors.timing.ready }}
+            disabled={!isSetupComplete && currentStep === 'connect'}
+          />
+        ) : (
+          <Button
+            title="Continue"
+            onPress={handleNext}
+            size="large"
+          />
+        )}
       </SafeAreaView>
     </View>
   );
@@ -728,323 +348,45 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  cancelText: {
+  navText: {
     fontSize: typography.fontSize.base,
+  },
+  stepIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  stepDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumber: {
+    color: 'white',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold as '700',
+  },
+  stepLine: {
+    flex: 1,
+    height: 3,
+    marginHorizontal: spacing.sm,
+    borderRadius: 1.5,
   },
   scrollView: {
     flex: 1,
   },
   content: {
     padding: spacing.lg,
-    gap: spacing.lg,
     paddingBottom: 40,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold as '600',
-    marginBottom: spacing.xs,
-  },
-  label: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  hint: {
-    fontSize: typography.fontSize.xs,
-    marginTop: -spacing.xs,
-  },
-  typeGrid: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  typeCard: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  typeLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold as '600',
-    textAlign: 'center',
-  },
-  typeDescription: {
-    fontSize: typography.fontSize.xs,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  input: {
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    fontSize: typography.fontSize.base,
-    borderWidth: 1,
-  },
-  optionsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  distanceOption: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    borderWidth: 2,
-  },
-  distanceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  distanceGridItem: {
-    width: '31%',
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    borderWidth: 2,
-  },
-  distanceText: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold as '600',
-  },
-  methodsContainer: {
-    gap: spacing.sm,
-  },
-  methodOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 2,
-  },
-  methodContent: {
-    flex: 1,
-  },
-  methodLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.medium as '500',
-    marginBottom: 2,
-  },
-  methodDescription: {
-    fontSize: typography.fontSize.sm,
-  },
-  radio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-  },
-  toggleContent: {
-    flex: 1,
-  },
-  toggleLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.medium as '500',
-    marginBottom: 2,
-  },
-  toggleDescription: {
-    fontSize: typography.fontSize.sm,
-  },
-  toggle: {
-    width: 50,
-    height: 30,
-    borderRadius: 15,
-    padding: 2,
-  },
-  toggleThumb: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'white',
-  },
-  configureButton: {
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  configureButtonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.medium as '500',
-  },
-  previewCard: {
-    marginTop: spacing.md,
-  },
-  previewTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold as '600',
-    textTransform: 'uppercase',
-    marginBottom: spacing.md,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.xs,
-  },
-  previewLabel: {
-    fontSize: typography.fontSize.sm,
-  },
-  previewValue: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as '500',
   },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.md,
     borderTopWidth: 1,
-  },
-  // Gate Editor Styles
-  gateEditorCard: {
-    marginTop: spacing.sm,
-  },
-  gateEditorTitle: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold as '600',
-    marginBottom: spacing.xs,
-  },
-  gateEditorHint: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.md,
-  },
-  gateList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  gateItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    gap: spacing.xs,
-  },
-  gateRoleBadge: {
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
-  },
-  gateRoleText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium as '500',
-    color: 'white',
-  },
-  gateDistance: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold as '600',
-  },
-  gateRemoveButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: spacing.xs,
-  },
-  gateRemoveText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.bold as '700',
-  },
-  addGateRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  addGateInput: {
-    flex: 1,
-    borderRadius: borderRadius.md,
-    padding: spacing.sm,
-    fontSize: typography.fontSize.base,
-    borderWidth: 1,
-  },
-  addGateButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    justifyContent: 'center',
-  },
-  addGateButtonText: {
-    color: 'white',
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as '500',
-  },
-  quickAddRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  quickAddLabel: {
-    fontSize: typography.fontSize.sm,
-  },
-  quickAddButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-  },
-  quickAddText: {
-    fontSize: typography.fontSize.sm,
-  },
-  finishDistanceRow: {
-    gap: spacing.sm,
-  },
-  finishDistanceLabel: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.xs,
-  },
-  finishOptions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  finishOption: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 2,
-  },
-  finishOptionText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as '500',
-  },
-  // Preview gate badges
-  previewGates: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  previewGateBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-  },
-  previewGateText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium as '500',
   },
 });

@@ -151,6 +151,11 @@ export function CrossingReviewScreen({ navigation, route }: CrossingReviewScreen
           resizeMode="contain"
         />
 
+        {/* Center Gate Line - Finish Line */}
+        <View style={styles.gateLineContainer}>
+          <View style={styles.gateLine} />
+        </View>
+
         {/* AI Frame Indicator */}
         {isAiFrame && (
           <View style={styles.aiIndicator}>
@@ -305,6 +310,23 @@ const styles = StyleSheet.create({
   frameImage: {
     width: '100%',
     height: '100%',
+  },
+  gateLineContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '50%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gateLine: {
+    width: 2,
+    height: '100%',
+    backgroundColor: darkColors.primary[500],
+    shadowColor: darkColors.primary[500],
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
   },
   aiIndicator: {
     position: 'absolute',

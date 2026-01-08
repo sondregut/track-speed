@@ -66,12 +66,15 @@ export class BluetoothSync {
   private timeSync: TimeSync;
 
   private state: ConnectionState = 'disconnected';
+  private bleState: State = State.Unknown;
   private discoveredDevices: Map<string, BluetoothDevice> = new Map();
   private connectedDevices: Map<string, BluetoothDevice> = new Map(); // Support multiple devices
   private isAdvertising: boolean = false;
   private scanSubscription: any = null;
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private sequenceNumber: number = 0;
+  private bleReadyPromise: Promise<boolean>;
+  private bleReadyResolve: ((value: boolean) => void) | null = null;
 
   // Max simultaneous connections (BLE typically supports 7-10)
   private static readonly MAX_CONNECTIONS = 5;
@@ -93,6 +96,11 @@ export class BluetoothSync {
       ...config,
     };
 
+    // Create promise that resolves when BLE is ready
+    this.bleReadyPromise = new Promise((resolve) => {
+      this.bleReadyResolve = resolve;
+    });
+
     this.manager = new BleManager();
     this.timeSync = new TimeSync();
     this.setupManagerListener();
@@ -104,10 +112,20 @@ export class BluetoothSync {
   private setupManagerListener(): void {
     this.manager.onStateChange((state) => {
       console.log('BluetoothSync: BLE state changed:', state);
+      this.bleState = state;
+
       if (state === State.PoweredOn) {
         console.log('BluetoothSync: Bluetooth is ready');
+        this.bleReadyResolve?.(true);
       } else if (state === State.PoweredOff) {
+        this.bleReadyResolve?.(false);
         this.handleError(new Error('Bluetooth is turned off'));
+      } else if (state === State.Unauthorized) {
+        this.bleReadyResolve?.(false);
+        this.handleError(new Error('Bluetooth permission denied'));
+      } else if (state === State.Unsupported) {
+        this.bleReadyResolve?.(false);
+        this.handleError(new Error('Bluetooth not supported on this device'));
       }
     }, true);
   }
@@ -146,10 +164,16 @@ export class BluetoothSync {
 
   /**
    * Check if Bluetooth is available and enabled
+   * Waits for BLE to initialize before returning
    */
   async isAvailable(): Promise<boolean> {
-    const state = await this.manager.state();
-    return state === State.PoweredOn;
+    // Wait for BLE state to be determined (with timeout)
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), 5000);
+    });
+
+    const ready = await Promise.race([this.bleReadyPromise, timeoutPromise]);
+    return ready && this.bleState === State.PoweredOn;
   }
 
   /**

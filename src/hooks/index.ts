@@ -11,3 +11,11 @@ export { useVisionPose } from './useVisionPose';
 export { useSeries } from './useSeries';
 export { useGateDetection } from './useGateDetection';
 export { useResultsAggregator } from './useResultsAggregator';
+export { useTimingSounds, type TimingEventType } from './useTimingSounds';
+export {
+  useTimingPhotoCapture,
+  getSessionPhotos,
+  cleanupOldPhotos,
+  type CapturedPhoto,
+} from './useTimingPhotoCapture';
+export { useDeviceStability, type StabilityState } from './useDeviceStability';

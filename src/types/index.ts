@@ -1,6 +1,9 @@
 // Note: Navigation types are in ./navigation.ts
 // Import them directly when needed to avoid circular deps
 
+// Re-export purchase types
+export * from './purchases';
+
 // ============================================
 // Session & Training Types
 // ============================================
@@ -8,8 +11,14 @@
 /** Type of sprint session - determines UI and calculations */
 export type SessionType = 'flying' | 'standing' | 'block_start' | 'series';
 
-/** Start trigger method */
-export type StartMethod = 'touch' | 'ready_set_go' | 'sound_detection' | 'three_two_one' | 'external_gate';
+/** Start trigger method (legacy - kept for backwards compatibility) */
+export type StartMethodLegacy = 'touch' | 'ready_set_go' | 'sound_detection' | 'three_two_one' | 'external_gate';
+
+/** Simplified start method for new setup flow */
+export type SimpleStartMethod = 'sound' | 'thumb' | 'gate';
+
+/** Start trigger method - supports both legacy and new simplified methods */
+export type StartMethod = StartMethodLegacy | SimpleStartMethod;
 
 // ============================================
 // Series/Interval Training Types
@@ -87,6 +96,22 @@ export interface SplitTime {
   distance_m: number;
   time_ms: number;
   velocity_ms?: number; // Calculated velocity at this split
+  /** URI to the captured photo at this split (if available) */
+  photoUri?: string;
+  /** Timestamp when the photo was captured */
+  photoTimestamp?: number;
+}
+
+/** Configuration snapshot for a single run */
+export interface RunConfig {
+  /** Distance being timed */
+  distance_m: number;
+  /** Start method used */
+  startMethod: StartMethod;
+  /** Session type (flying, standing, etc.) */
+  sessionType?: SessionType;
+  /** Fly-in distance for flying starts */
+  flyInDistance_m?: number;
 }
 
 /** Complete timing result with velocity calculations */
@@ -107,12 +132,29 @@ export interface TimingResult {
   velocity_ms?: number; // Max velocity in m/s
   distance_m?: number; // Distance for this result (optional for legacy)
 
+  // Run configuration (snapshot of settings when run was recorded)
+  runConfig?: RunConfig;
+
   // Session context (optional for backwards compatibility)
   sessionType?: SessionType;
   flyInDistance_m?: number; // For flying starts: acceleration zone
 
   // Split times (for multi-gate setups)
   splits?: SplitTime[];
+
+  // Photo capture
+  /** URI to the finish photo (captured at crossing moment) */
+  finishPhotoUri?: string;
+  /** Timestamp when the finish photo was captured */
+  finishPhotoTimestamp?: number;
+
+  // Frame buffer for manual review (Photo Finish style)
+  /** Path to folder containing captured frames for manual review */
+  frameBufferPath?: string;
+  /** Number of frames in the buffer */
+  frameBufferCount?: number;
+  /** Index of the AI-detected crossing frame */
+  aiFrameIndex?: number;
 
   createdAt?: Date;
 }
@@ -331,4 +373,59 @@ export interface GateCrossingResult {
   confidence: number;
   /** Direction of crossing */
   direction: 'entering' | 'exiting';
+}
+
+// ============================================
+// Quick Setup Types (Simplified Freelap-style)
+// ============================================
+
+/**
+ * This phone's role in a multi-phone timing session
+ */
+export type PhoneRole = 'start' | 'finish' | 'lap' | 'start_finish';
+
+/**
+ * Simplified quick setup configuration
+ *
+ * Start methods:
+ * - sound: Clap/gun starts timer, run through same phone to finish (1 phone)
+ * - thumb: Hold thumb on start phone, run through finish phone (2+ phones)
+ * - gate: Run through start gate phone, then finish gate phone (2+ phones)
+ */
+export interface QuickSetupConfig {
+  /** How the timer starts */
+  startMethod: SimpleStartMethod;
+
+  /** Number of phones/gates (1 for sound-only, 2+ for multi-phone) */
+  gateCount: number;
+
+  /** Total distance being timed (finish line distance from start) */
+  totalDistance_m: number;
+
+  /** Distances for each gate (index 0 = start = 0m, last = finish) */
+  gateDistances_m: number[];
+
+  /** This phone's role in the setup */
+  thisPhoneRole: PhoneRole;
+
+  /** Connected device IDs mapped to gate indices */
+  gateDeviceIds: (string | null)[];
+}
+
+/**
+ * Helper to get minimum phones required for a start method
+ */
+export function getMinPhonesForStartMethod(startMethod: SimpleStartMethod): number {
+  switch (startMethod) {
+    case 'sound': return 1;
+    case 'thumb': return 2;
+    case 'gate': return 2;
+  }
+}
+
+/**
+ * Helper to check if this phone acts as both start and finish
+ */
+export function isStartFinishPhone(config: QuickSetupConfig): boolean {
+  return config.startMethod === 'sound' && config.gateCount === 1;
 }

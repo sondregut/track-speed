@@ -1,31 +1,40 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, Modal, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraFormat, useCameraPermission, PhotoFile } from 'react-native-vision-camera';
+import { File, Directory, Paths } from 'expo-file-system';
 import { spacing, borderRadius, typography, darkColors } from '../constants/theme';
 import { useTheme } from '../contexts';
 import { CameraPreview, GateLine, PoseOverlay } from '../components/camera';
 import { TimerDisplay, StartButton, ResultCard } from '../components/timing';
 import { Header, IconButton, Button } from '../components/ui';
-import { useTimer, useKeepAwake, useHaptics, useSound, useAutoTiming, useSyncConnection, useSoundDetection, useVisionPose } from '../hooks';
+import { useTimer, useKeepAwake, useHaptics, useSound, useAutoTiming, useSyncConnection, useSoundDetection, useVisionPose, useDeviceStability } from '../hooks';
 import { useSessionStore, useSettingsStore, useTimingStore } from '../stores';
 import { Athlete, TimingResult } from '../types';
 
+// Common sprint distances in meters
+const DISTANCE_OPTIONS = [10, 20, 30, 40, 50, 60, 100] as const;
+
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-interface TimerScreenProps {
-  navigation: any;
-}
-
-export function TimerScreen({ navigation }: TimerScreenProps) {
+export function TimerScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { colors } = useTheme(); // Use themed colors for indicators
   const { currentSession, athletes, selectedAthleteId, selectAthlete } = useSessionStore();
   const { timing: timingSettings } = useSettingsStore();
-  const { results, resetTimer } = useTimingStore();
+  const { results, resetTimer, updateResult, currentRunConfig, updateRunConfig, currentResult } = useTimingStore();
   const { trigger } = useHaptics();
   const { play } = useSound();
+
+  // Camera ref for photo capture
+  const cameraRef = useRef<Camera>(null);
+
+  // Distance configuration state
+  const [selectedDistance, setSelectedDistance] = useState<number>(currentRunConfig?.distance_m || 40);
+  const [showDistancePicker, setShowDistancePicker] = useState(false);
 
   // Manual timing hook (fallback)
   const manualTimer = useTimer();
@@ -52,6 +61,18 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
     const elapsedMs = crossingTimeMs - startTime;
 
+    // Start frame buffer capture - keep frame processor running for 1 second
+    // to collect post-crossing frames for review feature
+    // Using ref for SYNCHRONOUS update - critical to avoid race condition with timer stop
+    isCapturingFrameBufferRef.current = true;
+    if (captureTimeoutRef.current) {
+      clearTimeout(captureTimeoutRef.current);
+    }
+    captureTimeoutRef.current = setTimeout(() => {
+      isCapturingFrameBufferRef.current = false;
+      forceRender(n => n + 1); // Trigger re-render to update enabled prop
+    }, 1000); // 1 second should be enough for 0.5s post-crossing capture
+
     // Auto-stop the timer
     trigger('success');
     play('stop');
@@ -61,21 +82,67 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       sync.sendStop(elapsedMs);
     }
 
+    // Safe to stop timer immediately now - isCapturingFrameBufferRef.current is already true
+    // so the enabled prop will include it in the next render
     manualTimer.stop({
       time_ms: elapsedMs,
       source: 'auto_detected',
       confidence: confidence,
       startMethod: timingSettings.defaultStartMethod,
       frameNumber: 0,
+      distance_m: selectedDistance,
     });
-  }, [manualTimer, trigger, play, sync, timingSettings.defaultStartMethod]);
+  }, [manualTimer, trigger, play, sync, timingSettings.defaultStartMethod, selectedDistance]);
+
+  // Callback for crossing frame capture (finish photo with overlays)
+  const handleCrossingFrame = useCallback((frameBase64: string) => {
+    console.log('[Timer] Crossing frame captured, size:', frameBase64.length);
+    // Store the frame for later - will be saved when result is created
+    crossingFrameRef.current = frameBase64;
+  }, []);
+
+  // Ref to store captured crossing frame
+  const crossingFrameRef = useRef<string | null>(null);
+
+  // Callback for frame buffer ready (for manual review)
+  const handleFrameBufferReady = useCallback((folderPath: string, frameCount: number, aiFrameIndex: number) => {
+    console.log('[Timer] Frame buffer ready:', { folderPath, frameCount, aiFrameIndex });
+    // Store for navigation to review screen
+    frameBufferRef.current = { folderPath, frameCount, aiFrameIndex };
+    // Frame buffer capture is complete - stop the capture timer
+    isCapturingFrameBufferRef.current = false;
+    if (captureTimeoutRef.current) {
+      clearTimeout(captureTimeoutRef.current);
+      captureTimeoutRef.current = null;
+    }
+    forceRender(n => n + 1); // Trigger re-render to update enabled prop
+  }, []);
+
+  // Ref to store frame buffer info
+  const frameBufferRef = useRef<{ folderPath: string; frameCount: number; aiFrameIndex: number } | null>(null);
+
+  // Ref to keep frame processor running during post-crossing frame capture
+  // Using a ref (not state) because it updates SYNCHRONOUSLY - critical for avoiding
+  // race condition where manualTimer.stop() triggers re-render before state update applies
+  const isCapturingFrameBufferRef = useRef(false);
+  const captureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // State to trigger re-render when capture ends (ref changes don't trigger re-renders)
+  const [, forceRender] = useState(0);
+
+  // Device stability detection (phone must be still and vertical)
+  const deviceStability = useDeviceStability({ autoStart: true });
 
   // Native iOS Vision pose detection (gate at 50% = center of screen)
+  // Keep frame processor running during frame buffer capture (after crossing)
   const visionPose = useVisionPose({
     gateLineX: 0.5,
     minConfidence: 0.5,
-    enabled: timingSettings.autoDetectionEnabled && manualTimer.state === 'running',
+    enabled: timingSettings.autoDetectionEnabled && (manualTimer.state === 'running' || isCapturingFrameBufferRef.current),
     onGateCrossing: handleGateCrossing,
+    captureOnCrossing: true,  // Enable finish photo capture with overlays
+    enableFrameBuffer: true,  // Enable frame buffer for manual review
+    onCrossingFrame: handleCrossingFrame,
+    onFrameBufferReady: handleFrameBufferReady,
   });
   const remoteStartTime = useRef<number | null>(null);
   const [splitTimes, setSplitTimes] = useState<number[]>([]);
@@ -141,14 +208,18 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     setCameraPosition(prev => prev === 'back' ? 'front' : 'back');
   }, []);
 
-  // Select format that supports high FPS for better timing accuracy
+  // Select format that supports highest FPS for better timing accuracy
+  // iOS devices support: 30, 60, 120 (iPhone 8+), 240 (iPhone 8+ slo-mo)
+  // At 240fps: ~4.17ms per frame = sub-frame interpolation to ~1ms accuracy
+  // At 120fps: ~8.33ms per frame = sub-frame interpolation to ~2ms accuracy
   const format = useCameraFormat(device, [
-    { fps: 60 },
-    { videoResolution: { width: 1920, height: 1080 } },
+    { fps: 240 },  // Request highest available (falls back gracefully)
+    { videoResolution: { width: 1280, height: 720 } }, // Lower res for high FPS
   ]);
 
-  // Use the format's max FPS (capped at 60)
-  const targetFps = format ? Math.min(format.maxFps, 60) : 30;
+  // Use the format's max FPS - higher is better for timing precision
+  // Note: Frame processor must complete in time (240fps = 4ms budget)
+  const targetFps = format?.maxFps || 60;
 
   const [cameraReady, setCameraReady] = useState(false);
   const useGlassUI = Platform.OS === 'ios' && isLiquidGlassAvailable();
@@ -228,8 +299,141 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   // Keep screen awake during timing
   useKeepAwake(isRunning);
 
-  // Get the last result for display
-  const lastResult = results.length > 0 ? results[results.length - 1] : null;
+  // Photo capture function - uses AI-captured crossing frame with overlays when available
+  const captureFinishPhoto = useCallback(async (resultId: string): Promise<void> => {
+    try {
+      // Create photos directory if needed
+      const fileName = `finish_${resultId}_${Date.now()}.jpg`;
+      const photosDir = new Directory(Paths.document, 'photos');
+
+      if (!photosDir.exists) {
+        photosDir.create();
+      }
+
+      const destFile = new File(photosDir, fileName);
+
+      // Check if we have an AI-captured crossing frame with overlays
+      if (crossingFrameRef.current) {
+        console.log('[Timer] Using AI crossing frame with overlays');
+
+        // Decode base64 and write to file
+        // The frame already has gate line + torso indicator drawn on it
+        const base64Data = crossingFrameRef.current;
+
+        // Write base64 data to file (expo-file-system/next handles this)
+        await destFile.write(base64Data, { encoding: 'base64' });
+
+        // Clear the ref for next capture
+        crossingFrameRef.current = null;
+
+        // Update the result with the photo URI
+        updateResult(resultId, { finishPhotoUri: destFile.uri });
+        console.log('[Timer] Finish photo with overlays saved:', destFile.uri);
+        return;
+      }
+
+      // Fallback: take a snapshot if no AI frame available
+      if (!cameraRef.current) {
+        console.log('[Timer] No camera ref and no AI frame available');
+        return;
+      }
+
+      console.log('[Timer] Falling back to camera snapshot (no AI frame)');
+      const photo = await cameraRef.current.takeSnapshot({
+        quality: 85,
+      });
+
+      // Copy from temp location to permanent storage
+      const sourceFile = new File(photo.path);
+      await sourceFile.copy(destFile);
+
+      // Update the result with the photo URI
+      updateResult(resultId, { finishPhotoUri: destFile.uri });
+      console.log('[Timer] Finish photo (snapshot fallback) saved:', destFile.uri);
+    } catch (error) {
+      console.error('[Timer] Failed to capture finish photo:', error);
+    }
+  }, [updateResult]);
+
+  // Navigate to RunResultScreen when timer stops with a new result
+  const hasNavigatedRef = useRef<string | null>(null);
+  const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    console.log('Navigation effect:', { state, currentResultId: currentResult?.id, hasNavigated: hasNavigatedRef.current });
+
+    // Navigate when we have a stopped state with a result we haven't navigated to yet
+    if (state === 'stopped' && currentResult && hasNavigatedRef.current !== currentResult.id) {
+      console.log('Navigating to RunResult:', currentResult.id);
+      hasNavigatedRef.current = currentResult.id;
+
+      // Capture photo immediately when timer stops
+      captureFinishPhoto(currentResult.id);
+
+      // Save frame buffer info for manual review (Photo Finish style)
+      if (frameBufferRef.current) {
+        console.log('[Timer] Saving frame buffer info:', frameBufferRef.current);
+        updateResult(currentResult.id, {
+          frameBufferPath: frameBufferRef.current.folderPath,
+          frameBufferCount: frameBufferRef.current.frameCount,
+          aiFrameIndex: frameBufferRef.current.aiFrameIndex,
+        });
+        frameBufferRef.current = null; // Clear after saving
+      }
+
+      // Store result ID to use in timeout (avoid closure issues)
+      const resultId = currentResult.id;
+
+      // Clear any existing timer
+      if (navigationTimerRef.current) {
+        clearTimeout(navigationTimerRef.current);
+      }
+
+      // Small delay to ensure the photo is captured
+      // Use ref so cleanup doesn't cancel this
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        try {
+          console.log('Attempting navigation reset...');
+          // Use reset to reliably navigate to RunResult
+          (navigation as any).reset({
+            index: 1,
+            routes: [
+              { name: 'MainTabs' },
+              { name: 'RunResult', params: { resultId } },
+            ],
+          });
+          console.log('Navigation reset completed');
+        } catch (error) {
+          console.error('Navigation error:', error);
+          // Fallback: try dispatch
+          try {
+            console.log('Trying dispatch fallback...');
+            navigation.dispatch(
+              CommonActions.reset({
+                index: 1,
+                routes: [
+                  { name: 'MainTabs' },
+                  { name: 'RunResult', params: { resultId } },
+                ],
+              })
+            );
+            console.log('Dispatch fallback completed');
+          } catch (e2) {
+            console.error('Dispatch fallback also failed:', e2);
+          }
+        }
+      }, 300);
+    }
+    // Don't return cleanup - we want the navigation to complete even if effect re-runs
+  }, [state, currentResult, navigation, captureFinishPhoto]);
+
+  // Reset navigation tracking when timer resets to idle
+  useEffect(() => {
+    if (state === 'idle') {
+      hasNavigatedRef.current = null;
+    }
+  }, [state]);
 
   const handleStart = useCallback(() => {
     // For sound detection mode, go to 'ready' state and wait for sound
@@ -287,12 +491,13 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
         confidence: null,
         startMethod: timingSettings.defaultStartMethod,
         frameNumber: 0,
+        distance_m: selectedDistance,
       });
     }
 
     // Clear start time
     timerStartTimeRef.current = null;
-  }, [useNativeVision, useMockAutoDetection, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync]);
+  }, [useNativeVision, useMockAutoDetection, autoTiming, manualTimer, trigger, play, timingSettings.defaultStartMethod, sync, selectedDistance]);
 
   const handleReset = useCallback(() => {
     trigger('light');
@@ -315,6 +520,10 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     remoteStartTime.current = null;
     timerStartTimeRef.current = null;
     setSplitTimes([]);
+
+    // Clear frame capture refs for next run
+    crossingFrameRef.current = null;
+    frameBufferRef.current = null;
   }, [trigger, useNativeVision, useMockAutoDetection, visionPose, autoTiming, manualTimer, sync]);
 
   const handleCameraReady = useCallback(() => {
@@ -365,11 +574,13 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       {useNativeVision && device ? (
         <View style={StyleSheet.absoluteFill}>
           <Camera
+            ref={cameraRef}
             style={StyleSheet.absoluteFill}
             device={device}
             format={format}
             isActive={true}
             video={true}
+            photo={true}
             pixelFormat="yuv"
             frameProcessor={visionPose.frameProcessor}
             fps={targetFps}
@@ -395,6 +606,65 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
           {/* Gate Line Overlay */}
           <GateLine position={0.7} />
         </CameraPreview>
+      )}
+
+      {/* Stability Border Overlay - shows red/yellow/green based on phone position */}
+      {deviceStability.isSupported && state === 'idle' && (
+        <View
+          style={[
+            styles.stabilityBorder,
+            {
+              borderColor: deviceStability.isReady
+                ? darkColors.timing.success
+                : deviceStability.isStable
+                ? darkColors.timing.warning
+                : darkColors.timing.error,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          {/* Setup instructions when not ready */}
+          {!deviceStability.isReady && (
+            <View style={styles.stabilityOverlay}>
+              <View style={styles.stabilityInstructions}>
+                <Text style={styles.stabilityIcon}>
+                  {deviceStability.isStable ? '⟳' : '⏸'}
+                </Text>
+                <Text style={styles.stabilityTitle}>
+                  {deviceStability.message}
+                </Text>
+                <Text style={styles.stabilitySubtitle}>
+                  {deviceStability.isStable
+                    ? `Tilt: ${deviceStability.tiltAngle.toFixed(1)}°`
+                    : 'Mount phone on tripod or stable surface'}
+                </Text>
+                {/* Stability score */}
+                <View style={styles.stabilityScoreBar}>
+                  <View
+                    style={[
+                      styles.stabilityScoreFill,
+                      {
+                        width: `${deviceStability.overallScore}%`,
+                        backgroundColor: deviceStability.isReady
+                          ? darkColors.timing.success
+                          : deviceStability.isStable
+                          ? darkColors.timing.warning
+                          : darkColors.timing.error,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Ready badge when device is properly set up */}
+      {deviceStability.isSupported && deviceStability.isReady && state === 'idle' && (
+        <View style={styles.readyBadge}>
+          <Text style={styles.readyBadgeText}>Ready</Text>
+        </View>
       )}
 
       {/* Header Overlay */}
@@ -447,6 +717,16 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
           </View>
         )}
 
+        {/* Distance Selector - tap to change */}
+        <TouchableOpacity
+          style={styles.distanceSelector}
+          onPress={() => setShowDistancePicker(true)}
+          disabled={isRunning}
+        >
+          <Text style={styles.distanceSelectorLabel}>Distance</Text>
+          <Text style={styles.distanceSelectorValue}>{selectedDistance}m</Text>
+        </TouchableOpacity>
+
         <View style={styles.controls}>
           <StartButton
             state={state}
@@ -457,26 +737,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
           />
         </View>
 
-        {/* Retry / Next Athlete Buttons */}
-        {(state === 'stopped' || state === 'idle') && athletes.length > 0 && (
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleRetryRun}
-            >
-              <Text style={styles.actionButtonIcon}>↺</Text>
-              <Text style={styles.actionButtonText}>Retry run</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleNextAthlete}
-            >
-              <Text style={styles.actionButtonIcon}>▶</Text>
-              <Text style={styles.actionButtonText}>Next athlete</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Post-run UI is now handled by RunResultScreen */}
 
         {/* Status indicators */}
         <View style={styles.statusIndicators}>
@@ -566,27 +827,55 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
           </View>
         )}
 
-        {/* Show result card when stopped */}
-        {state === 'stopped' && lastResult && (
-          <View style={styles.resultContainer}>
-            {useGlassUI ? (
-              <GlassView style={styles.resultGlass} glassEffectStyle="clear">
-                <ResultCard
-                  result={lastResult}
-                  distance={currentSession?.distance}
-                  showDetails={true}
-                />
-              </GlassView>
-            ) : (
-              <ResultCard
-                result={lastResult}
-                distance={currentSession?.distance}
-                showDetails={true}
-              />
-            )}
-          </View>
-        )}
+        {/* Result card is now shown in RunResultScreen */}
       </View>
+
+      {/* Distance Picker Modal */}
+      <Modal
+        visible={showDistancePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDistancePicker(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowDistancePicker(false)}
+        >
+          <View style={styles.distancePickerModal}>
+            <Text style={styles.distancePickerTitle}>Select Distance</Text>
+            <View style={styles.distanceOptions}>
+              {DISTANCE_OPTIONS.map((distance) => (
+                <Pressable
+                  key={distance}
+                  style={[
+                    styles.distanceOption,
+                    selectedDistance === distance && styles.distanceOptionSelected,
+                  ]}
+                  onPress={() => {
+                    setSelectedDistance(distance);
+                    setShowDistancePicker(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.distanceOptionText,
+                      selectedDistance === distance && styles.distanceOptionTextSelected,
+                    ]}
+                  >
+                    {distance}m
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable
+              style={styles.distancePickerCancel}
+              onPress={() => setShowDistancePicker(false)}
+            >
+              <Text style={styles.distancePickerCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -710,28 +999,60 @@ const styles = StyleSheet.create({
     color: darkColors.white,
     marginTop: spacing.xs,
   },
-  // Action buttons (retry/next)
-  actionButtons: {
-    flexDirection: 'row',
-    gap: spacing.lg,
+  // Post-run action buttons
+  postRunActions: {
+    width: '100%',
+    alignItems: 'center',
+    gap: spacing.md,
     marginTop: spacing.lg,
+    marginBottom: spacing.md,
   },
-  actionButton: {
+  primaryActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    backgroundColor: darkColors.black + '80',
     borderRadius: borderRadius.full,
     gap: spacing.sm,
+    minWidth: 160,
   },
-  actionButtonIcon: {
-    fontSize: typography.fontSize.lg,
+  primaryActionIcon: {
+    fontSize: typography.fontSize.xl,
     color: darkColors.white,
   },
-  actionButtonText: {
+  primaryActionText: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: '600' as const,
+    color: darkColors.white,
+  },
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  secondaryActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: darkColors.black + '90',
+    borderRadius: borderRadius.full,
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: darkColors.gray[700],
+  },
+  secondaryActionIcon: {
+    fontSize: typography.fontSize.base,
+    color: darkColors.white,
+  },
+  secondaryActionText: {
     fontSize: typography.fontSize.sm,
     color: darkColors.white,
+  },
+  endSessionButton: {
+    borderColor: darkColors.gray[500],
   },
   // Audio level indicator
   audioLevelBar: {
@@ -769,5 +1090,143 @@ const styles = StyleSheet.create({
   flipCameraIcon: {
     fontSize: 24,
     color: darkColors.white,
+  },
+  // Distance selector
+  distanceSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: darkColors.black + '80',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full,
+    marginBottom: spacing.sm,
+  },
+  distanceSelectorLabel: {
+    fontSize: typography.fontSize.sm,
+    color: darkColors.gray[400],
+  },
+  distanceSelectorValue: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: '600' as const,
+    color: darkColors.white,
+  },
+  // Distance picker modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  distancePickerModal: {
+    backgroundColor: darkColors.gray[900],
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    width: '80%',
+    maxWidth: 300,
+  },
+  distancePickerTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: '600' as const,
+    color: darkColors.white,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  distanceOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  distanceOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: darkColors.gray[800],
+    borderWidth: 2,
+    borderColor: 'transparent',
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  distanceOptionSelected: {
+    borderColor: darkColors.primary[500],
+    backgroundColor: darkColors.primary[500] + '20',
+  },
+  distanceOptionText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: '500' as const,
+    color: darkColors.white,
+  },
+  distanceOptionTextSelected: {
+    color: darkColors.primary[400],
+  },
+  distancePickerCancel: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  distancePickerCancelText: {
+    fontSize: typography.fontSize.base,
+    color: darkColors.gray[400],
+  },
+  // Device stability indicator styles
+  stabilityBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 4,
+    borderRadius: 0,
+  },
+  stabilityOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stabilityInstructions: {
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  stabilityIcon: {
+    fontSize: 48,
+    color: darkColors.white,
+    marginBottom: spacing.md,
+  },
+  stabilityTitle: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: '700',
+    color: darkColors.white,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  stabilitySubtitle: {
+    fontSize: typography.fontSize.base,
+    color: darkColors.gray[300],
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  stabilityScoreBar: {
+    width: 150,
+    height: 6,
+    backgroundColor: darkColors.gray[700],
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  stabilityScoreFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  readyBadge: {
+    position: 'absolute',
+    top: 100,
+    right: spacing.md,
+    backgroundColor: darkColors.timing.success,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    zIndex: 10,
+  },
+  readyBadgeText: {
+    color: darkColors.white,
+    fontSize: typography.fontSize.sm,
+    fontWeight: '600',
   },
 });

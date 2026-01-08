@@ -20,6 +20,9 @@ import {
   DeviceSyncScreen,
   PoseTestScreen,
   CrossingReviewScreen,
+  RunResultScreen,
+  SessionResultsScreen,
+  SessionSummaryScreen,
 } from './src/screens';
 import { ErrorBoundary } from './src/components/ui';
 import { ThemeProvider, useTheme } from './src/contexts';
@@ -42,6 +45,9 @@ export type RootStackParamList = {
     aiFrameIndex: number;
     onConfirm?: (selectedFrameIndex: number, timestamp: number) => void;
   };
+  RunResult: { resultId: string };
+  SessionResults: undefined;
+  SessionSummary: undefined;
 };
 
 export type TabParamList = {
@@ -142,7 +148,8 @@ function ThemedNavigator() {
           component={TimerScreen}
           options={{
             animation: 'slide_from_bottom',
-            presentation: 'fullScreenModal',
+            presentation: 'card',
+            gestureEnabled: false, // Prevent swipe-to-dismiss during timing
           }}
         />
         <Stack.Screen
@@ -215,6 +222,30 @@ function ThemedNavigator() {
           options={{
             animation: 'slide_from_bottom',
             presentation: 'fullScreenModal',
+          }}
+        />
+        <Stack.Screen
+          name="RunResult"
+          component={RunResultScreen}
+          options={{
+            animation: 'slide_from_right',
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="SessionResults"
+          component={SessionResultsScreen}
+          options={{
+            animation: 'slide_from_right',
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="SessionSummary"
+          component={SessionSummaryScreen}
+          options={{
+            animation: 'slide_from_right',
+            presentation: 'card',
           }}
         />
       </Stack.Navigator>

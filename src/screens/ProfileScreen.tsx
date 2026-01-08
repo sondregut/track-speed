@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts';
@@ -16,11 +16,8 @@ import { Header, Card, GlassCard } from '../components/ui';
 import { useSessionStore, useTimingStore, useSettingsStore } from '../stores';
 import { formatTime, formatVelocity } from '../utils';
 
-interface ProfileScreenProps {
-  navigation: any;
-}
-
-export function ProfileScreen({ navigation }: ProfileScreenProps) {
+export function ProfileScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
   const { sessions, athletes } = useSessionStore();
   const { results } = useTimingStore();
@@ -61,7 +58,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
         title="Profile"
         rightAction={
           <TouchableOpacity
-            onPress={() => navigation.navigate('Settings')}
+            onPress={() => router.push('/settings')}
             style={styles.settingsButton}
           >
             <Ionicons name="settings-outline" size={24} color={colors.text.primary} />
@@ -184,7 +181,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
           <ProfileCard variant="default">
             <TouchableOpacity
               style={[styles.actionRow, { borderBottomColor: colors.border.primary }]}
-              onPress={() => navigation.navigate('AthleteList')}
+              onPress={() => router.push('/athlete-list')}
             >
               <View style={styles.actionLeft}>
                 <Ionicons name="people-outline" size={22} color={colors.text.primary} />
@@ -197,7 +194,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
 
             <TouchableOpacity
               style={[styles.actionRow, { borderBottomColor: colors.border.primary }]}
-              onPress={() => navigation.navigate('GhostGateCalibration')}
+              onPress={() => router.push('/ghost-gate-calibration')}
             >
               <View style={styles.actionLeft}>
                 <Ionicons name="scan-outline" size={22} color={colors.text.primary} />
@@ -210,7 +207,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
 
             <TouchableOpacity
               style={styles.actionRow}
-              onPress={() => navigation.navigate('DeviceSync')}
+              onPress={() => router.push('/device-sync')}
             >
               <View style={styles.actionLeft}>
                 <Ionicons name="phone-portrait-outline" size={22} color={colors.text.primary} />

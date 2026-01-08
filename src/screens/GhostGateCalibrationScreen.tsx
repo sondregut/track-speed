@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { spacing, typography, borderRadius, darkColors } from '../constants/theme';
 import { useTheme } from '../contexts';
@@ -19,7 +19,7 @@ import { useSettingsStore } from '../stores';
 type CalibrationStep = 'intro' | 'positioning' | 'calibrating' | 'complete' | 'error';
 
 export function GhostGateCalibrationScreen() {
-  const navigation = useNavigation();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme(); // Use themed colors for quality indicators
   const { ghostGate, updateGhostGate } = useSettingsStore();
@@ -75,7 +75,7 @@ export function GhostGateCalibrationScreen() {
   };
 
   const handleDone = () => {
-    navigation.goBack();
+    router.back();
   };
 
   const handleRetry = () => {
@@ -112,7 +112,7 @@ export function GhostGateCalibrationScreen() {
         />
         <Button
           title="Cancel"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           variant="ghost"
           size="large"
         />
@@ -238,7 +238,7 @@ export function GhostGateCalibrationScreen() {
         title="Ghost Gate"
         transparent
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => router.back()}>
             <Text style={styles.closeButton}>✕</Text>
           </TouchableOpacity>
         }

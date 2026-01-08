@@ -4,7 +4,239 @@ This file tracks all development progress and completed work. **Update this log 
 
 ---
 
+## 2026-01-08
+
+### Session 18: Slit-Scan Photo Finish Detection
+
+#### Completed Tasks
+
+**1. Implemented Slit-Scan Photo Finish Detection System**
+
+Major new feature that replaces full-frame torsoX crossing logic with professional photo-finish style detection:
+
+- **Background subtraction**: Maintains EMA of vertical strip at gate line when no athlete present
+- **Foreground detection**: Pixels where |current - background| > delta are foreground
+- **Torso polygon masking**: Uses pose landmarks (LS, RS, RH, LH) to create row mask, only counting torso rows (not arms)
+- **Presence ratio**: `torsoForegroundCount / torsoTotalPixels` - how much of torso is at gate line
+- **Hysteresis detection**: Triggers when ratio rises above T_on (0.25), resets below T_off (0.15)
+- **Linear interpolation**: `t* = t0 + ((T - r0) / (r1 - r0)) * (t1 - t0)` for sub-frame accuracy
+
+This approach is the same as professional photo-finish systems like Omega and Lynx.
+
+**2. Key Data Structures Added**
+
+```swift
+struct SlitSample {
+  let timestamp: TimeInterval
+  let strip: [UInt8]           // Luma values at gate
+  let torsoRowMask: [Bool]     // Which rows are torso
+  let foregroundMask: [Bool]   // Which rows are foreground
+  let presenceRatio: Float     // Detection metric
+}
+
+struct SlitScanState {
+  var backgroundStrip: [Float] // EMA background model
+  var samples: [SlitSample]    // Rolling buffer
+  var wasAboveThreshold: Bool  // Hysteresis state
+  var crossingTimestamp: TimeInterval? // Interpolated time
+}
+```
+
+**3. Benefits Over Previous Approach**
+- Detects torso crossing even when arms are extended at same Y-height
+- Uses actual pixel data (luma) rather than just skeleton points
+- Achieves sub-frame accuracy even at 30fps via interpolation
+- More robust to arm swing causing false triggers
+
+**4. JS Hook Updated**
+- `useVisionPose.ts` now checks for `slitScan.crossingDetected` from native
+- Uses `slitScan.interpolatedTimestamp` for sub-frame accurate timing
+- Falls back to torsoX crossing logic when slit-scan not available
+
+#### Files Modified
+- `ios/TrackSpeed/VisionPoseFrameProcessor.swift`:
+  - Lines 112-157: Added SlitSample, SlitScanState, and configuration constants
+  - Lines 171-186: Added useSlitScan and resetSlitScan argument parsing
+  - Lines 271-281: Added slit-scan processing call
+  - Lines 415-425: Added slitScan results to JSON output
+  - Lines 1438-1824: Full slit-scan implementation (extractLumaStrip, background model, crossing detection, interpolation)
+- `src/hooks/useVisionPose.ts`:
+  - Lines 272-359: Updated frame processor to use slit-scan crossing detection with fallback
+
+#### Technical Notes
+- Slit width: 3 pixels (averaged for noise reduction)
+- Background EMA alpha: 0.02 (slow adaptation)
+- Foreground delta: 25 luma units
+- Presence thresholds: T_on = 0.25, T_off = 0.15 (hysteresis)
+- Debounce: 30 frames between crossings (~0.5s)
+- Max samples buffer: 120 (~2s at 60fps)
+
+#### Next Steps
+- Build and test on device
+- Verify slit-scan detection triggers correctly
+- Fine-tune thresholds based on real-world testing
+- Consider adding presence ratio visualization for debugging
+
+---
+
 ## 2026-01-07
+
+### Session 17: Sound Playback & AI Detection Improvements
+
+#### Completed Tasks
+
+**1. Fixed Sound Playback on Crossing**
+- Previously, `useSound` hook only logged sounds without actually playing them
+- Rewrote hook to use `useAudioPlayer` from expo-audio with hosted sound URLs
+- Sound types: start, stop, beep, countdown, crossing
+- Sound now plays when user crosses the finish line via `play('stop')` call
+
+**2. Improved AI Torso Detection to Exclude Arms**
+- Issue: AI was detecting extended arm as "leading edge" instead of chest
+- User screenshot showed Torso X: 0.105 when chest was clearly at ~0.5
+- Two fixes applied in `VisionPoseFrameProcessor.swift`:
+  - Increased shrink factor from 12% to 30% for horizontal ROI
+  - Increased top edge shift from 5% to 15% to exclude shoulders/deltoids
+  - Added sanity check: if segmentation X differs by >20% from pose X, fall back to pose-based detection
+
+**3. Algorithm Safety**
+- Added drift check comparing segmentation result vs pose skeleton
+- If drift > 20% of frame width, falls back to reliable pose-based detection
+- Prevents arm swing from causing false triggers
+
+#### Files Modified
+- `src/hooks/useSound.ts` - Complete rewrite to use expo-audio with URLs
+- `ios/TrackSpeed/VisionPoseFrameProcessor.swift`:
+  - Line 778-783: Increased shrink factor and top shift
+  - Lines 686-697: Added sanity check for drift detection
+
+#### Technical Notes
+- expo-audio requires URL sources (not data URIs) for playback
+- Sounds hosted on soundjay.com as MP3s
+- Swift detection algorithm V1.1 now has multiple fallback layers
+- New build required for native Swift changes
+
+#### Next Steps
+- Build and test on device
+- Verify sound plays on crossing
+- Verify AI detection accuracy with new parameters
+
+---
+
+### Session 16: Expo Router Migration for iOS 26 Liquid Glass
+
+#### Completed Tasks
+
+**1. Supabase Backend Setup**
+- Created Supabase project "trackspeed" in US East region
+- Designed and implemented database schema:
+  - `profiles` - User profiles with auth link
+  - `athletes` - Athlete records with personal bests
+  - `sessions` - Training sessions with configuration
+  - `results` - Individual timing results
+  - `splits` - Split times for multi-gate setups
+- Implemented Row Level Security (RLS) policies for all tables
+- Generated TypeScript types from database schema
+- Created Supabase client with AsyncStorage persistence
+- Created auth hooks (`useAuth`) with email and Apple Sign In
+- Created data hooks (`useSupabaseData`) for CRUD operations
+
+**2. Expo Router Migration**
+- Migrated from React Navigation to Expo Router for file-based routing
+- Created `app/` directory structure:
+  - `app/_layout.tsx` - Root layout with Stack navigator
+  - `app/(tabs)/_layout.tsx` - NativeTabs with iOS 26 Liquid Glass
+  - `app/(tabs)/index.tsx`, `results.tsx`, `profile.tsx` - Tab screens
+  - `app/timer.tsx`, `session-setup.tsx`, etc. - Stack screens
+- Updated package.json main entry to `expo-router/entry`
+
+**3. iOS 26 Liquid Glass Tabs**
+- Implemented NativeTabs from `expo-router/unstable-native-tabs`
+- Configured SF Symbols for tab icons:
+  - Home: `house` / `house.fill`
+  - Results: `stopwatch` / `stopwatch.fill`
+  - Profile: `person` / `person.fill`
+- Used DynamicColorIOS for adaptive tint colors
+- Added `minimizeBehavior="onScrollDown"` for native scrolling behavior
+
+**4. Screen Navigation Updates**
+- Updated all screens to use `useRouter` from expo-router
+- Replaced `navigation.navigate('X')` with `router.push('/x')`
+- Replaced `navigation.goBack()` with `router.back()`
+- Changed route names to kebab-case for Expo Router conventions
+
+#### Files Created
+- `app/_layout.tsx` - Root layout with providers
+- `app/(tabs)/_layout.tsx` - NativeTabs with Liquid Glass
+- `app/(tabs)/index.tsx` - Home tab wrapper
+- `app/(tabs)/results.tsx` - Results tab wrapper
+- `app/(tabs)/profile.tsx` - Profile tab wrapper
+- `app/timer.tsx` - Timer screen
+- `app/session-setup.tsx` - Session setup
+- `app/series-setup.tsx` - Series training setup
+- `app/result-detail.tsx` - Result detail
+- `app/run-result.tsx` - Run result
+- `app/session-results.tsx` - Session results
+- `app/session-summary.tsx` - Session summary
+- `app/athlete-list.tsx` - Athlete list
+- `app/ghost-gate-calibration.tsx` - Ghost gate calibration
+- `app/device-sync.tsx` - Device sync
+- `app/settings.tsx` - Settings
+- `app/pose-test.tsx` - Pose detection test
+- `app/crossing-review.tsx` - Crossing review
+- `supabase/migrations/20260108000000_initial_schema.sql` - Database schema
+- `src/lib/supabase/client.ts` - Supabase client
+- `src/lib/supabase/database.types.ts` - TypeScript types
+- `src/hooks/useAuth.ts` - Auth hook
+- `src/hooks/useSupabaseData.ts` - Data CRUD hooks
+- `.env.local` - Supabase credentials
+
+#### Files Modified
+- `package.json` - Updated main entry, added Supabase deps
+- All `src/screens/*.tsx` - Updated to use expo-router navigation
+
+#### Files Deleted
+- `App.tsx` → `App.old.tsx` → deleted (replaced by app/_layout.tsx)
+
+#### Technical Notes
+- NativeTabs requires Expo SDK 54+ and iOS 26+
+- Liquid Glass adapts to content behind tab bar via DynamicColorIOS
+- Supabase uses free tier (trackspeed project)
+- Database password stored securely in .env.local
+
+#### Next Steps
+- Test Liquid Glass tabs on iOS 26 device
+- Connect Supabase auth and data to screens
+- Production build for full native features
+
+---
+
+### Session 15: App Store Connect & Automation
+
+#### Completed Tasks
+
+**1. App Store Connect API Client**
+- Created Node.js API client for App Store Connect
+- JWT authentication with ES256 signing
+- Methods for apps, TestFlight, builds, metadata
+
+**2. TestFlight Automation Scripts**
+- Created scripts for managing TestFlight builds
+- Beta group management
+- Build submission automation
+
+**3. Track Speed App Listing**
+- Created Track Speed app in App Store Connect
+- Filled out app description and metadata
+- Configured privacy and categories
+
+#### Files Created
+- `scripts/app-store-connect/api.ts` - API client
+- `scripts/app-store-connect/testflight.ts` - TestFlight automation
+- `scripts/app-store-connect/metadata.ts` - Metadata management
+- `scripts/app-store-connect/update-metadata.ts` - Update script
+
+---
 
 ### Session 14: Finish Photo Capture & Distance Configuration
 

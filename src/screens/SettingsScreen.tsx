@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts';
@@ -9,11 +10,8 @@ import { Header, Card, GlassCard, Button } from '../components/ui';
 import { useSettingsStore, useSessionStore } from '../stores';
 import { VelocityUnit, DistanceUnit } from '../types';
 
-interface SettingsScreenProps {
-  navigation: any;
-}
-
-export function SettingsScreen({ navigation }: SettingsScreenProps) {
+export function SettingsScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
 
   // Selected option background - lighter in light mode, darker tint in dark mode
@@ -81,7 +79,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       <Header
         title="Settings"
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
           </TouchableOpacity>
         }
@@ -99,17 +97,17 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
             <LinkRow
               label="Manage Athletes"
               value={`${athletes.length} athlete${athletes.length !== 1 ? 's' : ''}`}
-              onPress={() => navigation.navigate('AthleteList')}
+              onPress={() => router.push('/athlete-list')}
             />
             <LinkRow
               label="Calibrate Ghost Gate"
               value={ghostGate.enabled ? 'Enabled' : 'Disabled'}
-              onPress={() => navigation.navigate('GhostGateCalibration')}
+              onPress={() => router.push('/ghost-gate-calibration')}
             />
             <LinkRow
               label="Device Sync"
               value="Multi-phone timing"
-              onPress={() => navigation.navigate('DeviceSync')}
+              onPress={() => router.push('/device-sync')}
             />
           </SettingsCard>
         </View>

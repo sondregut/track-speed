@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts';
 import { spacing, typography } from '../constants/theme';
 import { Button, Card, GlassCard, GlassButton } from '../components/ui';
@@ -8,11 +9,8 @@ import { formatDate, formatCount } from '../utils/formatting';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSoundDetection } from '../hooks';
 
-interface HomeScreenProps {
-  navigation: any;
-}
-
-export function HomeScreen({ navigation }: HomeScreenProps) {
+export function HomeScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
   const { sessions, currentSession, createSession } = useSessionStore();
   const { results } = useTimingStore();
@@ -36,29 +34,29 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const handleTestPose = () => {
     console.log('DEV: Testing pose detection...');
     createSession({ name: 'Pose Test', startMethod: 'touch' });
-    navigation.navigate('Timer');
+    router.push('/timer');
   };
 
   // DEV: Test sound + pose (creates session with sound detection)
   const handleTestSoundStart = () => {
     console.log('DEV: Testing sound start + pose finish...');
     createSession({ name: 'Sound Test', startMethod: 'sound_detection' });
-    navigation.navigate('Timer');
+    router.push('/timer');
   };
 
   const handleNewSession = () => {
-    navigation.navigate('SessionSetup');
+    router.push('/session-setup');
   };
 
   const handleSeriesTraining = () => {
-    navigation.navigate('SeriesSetup');
+    router.push('/series-setup');
   };
 
   const handleQuickStart = () => {
     if (!currentSession) {
       createSession({ name: 'Quick Session' });
     }
-    navigation.navigate('Timer');
+    router.push('/timer');
   };
 
   // Stats card - uses Glass effect on iOS 26+
@@ -84,7 +82,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
               <GlassButton
                 title="Quick Start"
                 onPress={handleQuickStart}
-                variant="primary"
+                variant="success"
                 size="large"
               />
               <GlassButton
@@ -106,7 +104,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                 title="Quick Start"
                 onPress={handleQuickStart}
                 size="large"
-                style={{ backgroundColor: colors.timing.ready }}
+                style={{ backgroundColor: colors.success[500] }}
               />
               <Button
                 title="New Session"
@@ -194,7 +192,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           {/* Pose Test Screen - dedicated test */}
           <TouchableOpacity
             style={[styles.devButton, { backgroundColor: '#8B5CF6', marginBottom: spacing.sm }]}
-            onPress={() => navigation.navigate('PoseTest')}
+            onPress={() => router.push('/pose-test')}
           >
             <Text style={styles.devButtonText}>Pose Detection Test</Text>
             <Text style={styles.devButtonSubtext}>Full screen visual test - see if detection works</Text>

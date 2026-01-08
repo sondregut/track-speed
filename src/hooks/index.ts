@@ -19,3 +19,7 @@ export {
   type CapturedPhoto,
 } from './useTimingPhotoCapture';
 export { useDeviceStability, type StabilityState } from './useDeviceStability';
+
+// Supabase / Auth hooks
+export { useAuth } from './useAuth';
+export { useAthletes, useSessions, useResults, useDataSync } from './useSupabaseData';

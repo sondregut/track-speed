@@ -198,13 +198,13 @@ export const usePurchaseStore = create<PurchaseStore>()(
               const productId = validPurchase.productId as ProductId;
               const isLifetime = productId === PRODUCT_IDS.LIFETIME;
 
+              // Note: transactionDate may not exist on all purchase types
+              const purchaseDate = (validPurchase as { transactionDate?: number }).transactionDate || Date.now();
               set({
                 subscription: {
                   isActive: true,
                   productId,
-                  expirationDate: isLifetime ? undefined : validPurchase.transactionDate
-                    ? new Date(validPurchase.transactionDate + 365 * 24 * 60 * 60 * 1000)
-                    : undefined,
+                  expirationDate: isLifetime ? undefined : new Date(purchaseDate + 365 * 24 * 60 * 60 * 1000),
                   isTrialPeriod: false,
                   willAutoRenew: !isLifetime,
                 },

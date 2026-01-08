@@ -114,6 +114,10 @@ export const lightColors = {
     active: '#2563EB',
     stopped: '#DC2626',
     gate: '#2563EB',
+    // Semantic aliases
+    success: '#16A34A',
+    warning: '#F59E0B',
+    error: '#DC2626',
   },
 
   // Base
@@ -200,6 +204,10 @@ export const darkColors = {
     active: '#F59E0B',
     stopped: '#EF4444',
     gate: '#F59E0B',
+    // Semantic aliases
+    success: '#22C55E',
+    warning: '#F59E0B',
+    error: '#EF4444',
   },
 
   // Base

@@ -20,20 +20,13 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { Header, Button, Card, GlassCard } from '../components/ui';
 import { useSessionStore } from '../stores';
 import { SeriesConfig, StartMethod } from '../types';
-
-type RootStackParamList = {
-  Timer: { sessionId?: string };
-};
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 // Preset configurations
 const PRESETS = {
@@ -68,7 +61,7 @@ const SETS_OPTIONS = [1, 2, 3, 4, 5, 6];
 const REPS_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 10];
 
 export function SeriesSetupScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { colors } = useTheme();
   const { createSession } = useSessionStore();
 
@@ -133,7 +126,7 @@ export function SeriesSetupScreen() {
       distance,
     });
 
-    navigation.navigate('Timer', { sessionId: session.id });
+    router.push(`/timer?sessionId=${session.id}`);
   };
 
   return (
@@ -141,7 +134,7 @@ export function SeriesSetupScreen() {
       <Header
         title="Series Training"
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => router.back()}>
             <Text style={[styles.backButton, { color: colors.primary[500] }]}>Cancel</Text>
           </TouchableOpacity>
         }

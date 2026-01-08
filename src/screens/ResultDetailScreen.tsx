@@ -9,7 +9,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -21,8 +21,8 @@ import { TimingResult } from '../types';
 
 export function ResultDetailScreen() {
   const { colors, isDark } = useTheme();
-  const navigation = useNavigation();
-  const route = useRoute();
+  const router = useRouter();
+  const params = useLocalSearchParams();
   const { results, updateResult, deleteResult } = useTimingStore();
   const { currentSession } = useSessionStore();
 
@@ -31,7 +31,7 @@ export function ResultDetailScreen() {
   const ResultCard = useGlassUI ? GlassCard : Card;
 
   // Get result from route params or find by id
-  const resultId = (route.params as any)?.resultId;
+  const resultId = params.resultId as string;
   const result = results.find((r) => r.id === resultId);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -45,7 +45,7 @@ export function ResultDetailScreen() {
         <Header
           title="Result"
           leftAction={
-            <TouchableOpacity onPress={() => navigation.goBack()}>
+            <TouchableOpacity onPress={() => router.back()}>
               <Text style={[styles.backText, { color: colors.primary[500] }]}>Back</Text>
             </TouchableOpacity>
           }
@@ -87,7 +87,7 @@ export function ResultDetailScreen() {
           style: 'destructive',
           onPress: () => {
             deleteResult(result.id);
-            navigation.goBack();
+            router.back();
           },
         },
       ]
@@ -123,7 +123,7 @@ export function ResultDetailScreen() {
       <Header
         title="Result Details"
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => router.back()}>
             <Text style={[styles.backText, { color: colors.primary[500] }]}>Back</Text>
           </TouchableOpacity>
         }

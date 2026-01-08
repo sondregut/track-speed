@@ -15,9 +15,9 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, borderRadius, shadows } from '../constants/theme';
-import { SessionResultsScreenProps } from '../types/navigation';
 import { useTimingStore } from '../stores/timingStore';
 import { TimingResult } from '../types';
 import { formatVelocity } from '../utils/velocity';
@@ -147,9 +147,8 @@ function GroupSection({ group, onResultPress }: GroupSectionProps) {
   );
 }
 
-export function SessionResultsScreen({
-  navigation,
-}: SessionResultsScreenProps) {
+export function SessionResultsScreen() {
+  const router = useRouter();
   const results = useTimingStore((state) => state.results);
   const sessionStartTime = useTimingStore((state) => state.sessionStartTime);
   const resetTimer = useTimingStore((state) => state.resetTimer);
@@ -169,23 +168,22 @@ export function SessionResultsScreen({
   // Navigation handlers
   const handleContinueTraining = () => {
     resetTimer();
-    // Navigate to Timer - can't use goBack because navigation stack may have been reset
-    navigation.navigate('Timer');
+    router.push('/timer');
   };
 
   const handleFinishSession = () => {
-    navigation.navigate('SessionSummary');
+    router.push('/session-summary');
   };
 
   const handleResultPress = (result: TimingResult) => {
-    navigation.navigate('RunResult', { resultId: result.id });
+    router.push(`/run-result?resultId=${result.id}`);
   };
 
   if (results.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
           </Pressable>
           <Text style={styles.headerTitle}>Session Results</Text>
@@ -215,7 +213,7 @@ export function SessionResultsScreen({
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Session Results</Text>

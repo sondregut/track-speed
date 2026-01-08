@@ -10,7 +10,7 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -33,7 +33,7 @@ const SESSION_MODES: { value: SessionMode; label: string; description: string }[
 
 export function DeviceSyncScreen() {
   const { colors, isDark } = useTheme();
-  const navigation = useNavigation();
+  const router = useRouter();
   const [deviceName, setDeviceName] = useState(`${Platform.OS === 'ios' ? 'iPhone' : 'Android'} ${Math.floor(Math.random() * 100)}`);
   const [gateDistance, setGateDistance] = useState<number>(0);
   const [customDistanceInput, setCustomDistanceInput] = useState('');
@@ -181,7 +181,7 @@ export function DeviceSyncScreen() {
       <Header
         title="Device Sync"
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => router.back()}>
             <Text style={[styles.backText, { color: colors.primary[500] }]}>Back</Text>
           </TouchableOpacity>
         }

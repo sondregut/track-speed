@@ -20,10 +20,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { File, Directory, Paths } from 'expo-file-system';
 import { colors, spacing, typography, borderRadius } from '../constants/theme';
-import { SessionSummaryScreenProps } from '../types/navigation';
 import { useTimingStore } from '../stores/timingStore';
 import { TimingResult } from '../types';
 import { formatVelocity, calculateAverageVelocity } from '../utils/velocity';
@@ -187,9 +187,8 @@ function PhotoModal({ visible, result, runNumber, onClose }: PhotoModalProps) {
   );
 }
 
-export function SessionSummaryScreen({
-  navigation,
-}: SessionSummaryScreenProps) {
+export function SessionSummaryScreen() {
+  const router = useRouter();
   const results = useTimingStore((state) => state.results);
   const sessionStartTime = useTimingStore((state) => state.sessionStartTime);
   const endSession = useTimingStore((state) => state.endSession);
@@ -257,19 +256,13 @@ export function SessionSummaryScreen({
   // Handle done - end session and go home
   const handleDone = () => {
     endSession();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'MainTabs', params: { screen: 'Home' } }],
-    });
+    router.replace('/');
   };
 
   // Handle new session
   const handleNewSession = () => {
     endSession();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'SessionSetup' }],
-    });
+    router.replace('/session-setup');
   };
 
   return (

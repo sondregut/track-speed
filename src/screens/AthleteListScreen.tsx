@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -26,7 +26,7 @@ interface AthleteListScreenProps {
 
 export function AthleteListScreen({ selectionMode = false, onSelect }: AthleteListScreenProps) {
   const { colors, isDark } = useTheme();
-  const navigation = useNavigation();
+  const router = useRouter();
   const {
     athletes,
     selectedAthleteId,
@@ -74,7 +74,7 @@ export function AthleteListScreen({ selectionMode = false, onSelect }: AthleteLi
   const handleSelectAthlete = (athlete: Athlete) => {
     if (selectionMode && onSelect) {
       onSelect(athlete);
-      navigation.goBack();
+      router.back();
     } else {
       selectAthlete(athlete.id);
     }
@@ -225,7 +225,7 @@ export function AthleteListScreen({ selectionMode = false, onSelect }: AthleteLi
       <Header
         title={selectionMode ? 'Select Athlete' : 'Athletes'}
         leftAction={
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => router.back()}>
             <Text style={[styles.backText, { color: colors.primary[500] }]}>Back</Text>
           </TouchableOpacity>
         }
@@ -243,7 +243,7 @@ export function AthleteListScreen({ selectionMode = false, onSelect }: AthleteLi
           style={[styles.noAthleteOption, { borderBottomColor: colors.border.primary }]}
           onPress={() => {
             selectAthlete(null);
-            navigation.goBack();
+            router.back();
           }}
         >
           <Text style={[styles.noAthleteText, { color: colors.text.secondary }]}>Continue without athlete</Text>

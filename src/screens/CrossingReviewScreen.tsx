@@ -5,12 +5,14 @@
  * if the AI detection wasn't accurate.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import { spacing, typography, darkColors } from '../constants/theme';
 import { Button } from '../components/ui';
+import { useTimingStore } from '../stores/timingStore';
+import { calculateVelocity } from '../utils/velocity';
 
 interface FrameMetadata {
   index: number;
@@ -27,21 +29,26 @@ interface CrossingMetadata {
   frames: FrameMetadata[];
 }
 
-interface CrossingReviewScreenProps {
-  navigation: any;
-  route: {
-    params: {
-      folderPath: string;
-      frameCount: number;
-      aiFrameIndex: number;
-      onConfirm?: (selectedFrameIndex: number, timestamp: number) => void;
-    };
-  };
-}
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
-export function CrossingReviewScreen({ navigation, route }: CrossingReviewScreenProps) {
-  const { folderPath, frameCount, aiFrameIndex, onConfirm } = route.params;
+export function CrossingReviewScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const folderPath = params.folderPath as string;
+  const frameCount = parseInt(params.frameCount as string, 10);
+  const aiFrameIndex = parseInt(params.aiFrameIndex as string, 10);
+  const resultId = params.resultId as string | undefined;
   const insets = useSafeAreaInsets();
+
+  // Get store actions and result
+  const results = useTimingStore((state) => state.results);
+  const updateResult = useTimingStore((state) => state.updateResult);
+
+  // Find the result we're reviewing
+  const result = useMemo(() => {
+    if (!resultId) return null;
+    return results.find((r) => r.id === resultId);
+  }, [results, resultId]);
 
   const [currentFrameIndex, setCurrentFrameIndex] = useState(aiFrameIndex);
   const [metadata, setMetadata] = useState<CrossingMetadata | null>(null);
@@ -108,16 +115,39 @@ export function CrossingReviewScreen({ navigation, route }: CrossingReviewScreen
   }, []);
 
   const handleConfirm = useCallback(() => {
-    const currentFrame = getCurrentFrame();
-    if (onConfirm && currentFrame) {
-      onConfirm(currentFrameIndex, currentFrame.timestamp);
+    const timeOffset = getTimeOffset();
+    const isAiFrame = currentFrameIndex === (metadata?.aiDetectedFrameIndex ?? aiFrameIndex);
+
+    // If user selected a different frame, update the result
+    if (!isAiFrame && result && resultId) {
+      const newTime = result.time_ms + timeOffset;
+
+      // Recalculate velocity if distance is available
+      const newVelocity = result.distance_m
+        ? calculateVelocity(result.distance_m, newTime)
+        : result.velocity_ms;
+
+      updateResult(resultId, {
+        time_ms: newTime,
+        velocity_ms: newVelocity,
+        source: 'manual_override',
+        confidence: null, // Manual override = no AI confidence
+        aiFrameIndex: currentFrameIndex, // Track which frame was selected
+      });
+
+      Alert.alert(
+        'Time Updated',
+        `Time adjusted by ${timeOffset >= 0 ? '+' : ''}${timeOffset.toFixed(0)}ms`,
+        [{ text: 'OK' }]
+      );
     }
-    navigation.goBack();
-  }, [currentFrameIndex, metadata, onConfirm, navigation]);
+
+    router.back();
+  }, [currentFrameIndex, metadata, result, resultId, updateResult, router, aiFrameIndex]);
 
   const handleCancel = useCallback(() => {
-    navigation.goBack();
-  }, [navigation]);
+    router.back();
+  }, [router]);
 
   if (loading) {
     return (

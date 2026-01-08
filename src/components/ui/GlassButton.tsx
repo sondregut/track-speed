@@ -14,7 +14,7 @@ import { spacing, typography, borderRadius } from '../../constants/theme';
 interface GlassButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'danger';
+  variant?: 'primary' | 'secondary' | 'danger' | 'success';
   size?: 'small' | 'medium' | 'large';
   disabled?: boolean;
   style?: ViewStyle;
@@ -43,6 +43,8 @@ export function GlassButton({
         return colors.gray[500] + '40';
       case 'danger':
         return colors.error[500] + '40';
+      case 'success':
+        return colors.success[500] + '90';
     }
   };
 
@@ -55,6 +57,8 @@ export function GlassButton({
         return colors.text.primary;
       case 'danger':
         return colors.error[600];
+      case 'success':
+        return colors.white;
     }
   };
 
@@ -74,6 +78,11 @@ export function GlassButton({
         return {
           backgroundColor: colors.error[100],
           borderColor: colors.error[500],
+        };
+      case 'success':
+        return {
+          backgroundColor: colors.success[500],
+          borderColor: colors.success[600],
         };
     }
   };

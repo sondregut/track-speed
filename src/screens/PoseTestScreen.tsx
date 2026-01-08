@@ -17,11 +17,10 @@ import { spacing, typography, darkColors } from '../constants/theme';
 import { useVisionPose } from '../hooks';
 import { Button } from '../components/ui';
 
-interface PoseTestScreenProps {
-  navigation: any;
-}
+import { useRouter } from 'expo-router';
 
-export function PoseTestScreen({ navigation }: PoseTestScreenProps) {
+export function PoseTestScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { hasPermission, requestPermission } = useCameraPermission();
 
@@ -79,17 +78,9 @@ export function PoseTestScreen({ navigation }: PoseTestScreenProps) {
   // Handle review frames button
   const handleReviewFrames = useCallback(() => {
     if (frameBufferData) {
-      navigation.navigate('CrossingReview', {
-        folderPath: frameBufferData.folderPath,
-        frameCount: frameBufferData.frameCount,
-        aiFrameIndex: frameBufferData.aiFrameIndex,
-        onConfirm: (selectedFrameIndex: number, timestamp: number) => {
-          console.log('[PoseTest] Frame selected:', { selectedFrameIndex, timestamp });
-          // Could update crossing time here if different from AI selection
-        },
-      });
+      router.push(`/crossing-review?folderPath=${encodeURIComponent(frameBufferData.folderPath)}&frameCount=${frameBufferData.frameCount}&aiFrameIndex=${frameBufferData.aiFrameIndex}`);
     }
-  }, [frameBufferData, navigation]);
+  }, [frameBufferData, router]);
 
   // Vision pose detection - with frame capture enabled
   const visionPose = useVisionPose({
@@ -286,7 +277,7 @@ export function PoseTestScreen({ navigation }: PoseTestScreenProps) {
       <View style={[styles.backButton, { bottom: insets.bottom + 20 }]}>
         <Button
           title="Back to Home"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           variant="secondary"
         />
       </View>

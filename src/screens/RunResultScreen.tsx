@@ -19,8 +19,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { colors, spacing, typography, borderRadius } from '../constants/theme';
-import { RunResultScreenProps } from '../types/navigation';
 import { useTimingStore } from '../stores/timingStore';
 import { formatVelocity, getVelocityRating } from '../utils/velocity';
 
@@ -50,9 +50,11 @@ function getConfidenceBadge(confidence: number | null): {
   return { label: 'Low Confidence', color: colors.error[500], icon: 'alert-circle' };
 }
 
-export function RunResultScreen({ route, navigation }: RunResultScreenProps) {
+export function RunResultScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
-  const { resultId } = route.params;
+  const resultId = params.resultId as string;
   const results = useTimingStore((state) => state.results);
   const resetTimer = useTimingStore((state) => state.resetTimer);
   const endSession = useTimingStore((state) => state.endSession);
@@ -104,34 +106,25 @@ export function RunResultScreen({ route, navigation }: RunResultScreenProps) {
   // Action handlers
   const handleRunAgain = () => {
     resetTimer();
-    // Navigate to Timer - can't use goBack because we used reset() to get here
-    navigation.navigate('Timer');
+    router.push('/timer');
   };
 
   const handleChangeSetup = () => {
     endSession();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'SessionSetup' }],
-    });
+    router.replace('/session-setup');
   };
 
   const handleViewAllResults = () => {
-    navigation.navigate('SessionResults');
+    router.push('/session-results');
   };
 
   const handleFinishSession = () => {
-    navigation.navigate('SessionSummary');
+    router.push('/session-summary');
   };
 
   const handleReviewCrossing = () => {
     if (result?.frameBufferPath && result.frameBufferCount && result.aiFrameIndex !== undefined) {
-      navigation.navigate('CrossingReview', {
-        folderPath: result.frameBufferPath,
-        frameCount: result.frameBufferCount,
-        aiFrameIndex: result.aiFrameIndex,
-        resultId: result.id,
-      });
+      router.push(`/crossing-review?folderPath=${encodeURIComponent(result.frameBufferPath)}&frameCount=${result.frameBufferCount}&aiFrameIndex=${result.aiFrameIndex}&resultId=${result.id}`);
     }
   };
 

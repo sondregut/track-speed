@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts';
 import { spacing, typography } from '../constants/theme';
 import { Header, Card } from '../components/ui';
@@ -10,11 +11,8 @@ import { formatDate } from '../utils/formatting';
 import { formatTime } from '../utils/timing';
 import { TimingResult } from '../types';
 
-interface ResultsScreenProps {
-  navigation: any;
-}
-
-export function ResultsScreen({ navigation }: ResultsScreenProps) {
+export function ResultsScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
   const { results, deleteResult } = useTimingStore();
   const { currentSession } = useSessionStore();
@@ -39,7 +37,7 @@ export function ResultsScreen({ navigation }: ResultsScreenProps) {
         distance={currentSession?.distance}
         showDetails={false}
         onPress={() => {
-          navigation.navigate('ResultDetail', { resultId: item.id });
+          router.push('/result-detail');
         }}
       />
     </View>

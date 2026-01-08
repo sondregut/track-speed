@@ -17,7 +17,7 @@ import {
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts';
 import { spacing, typography, borderRadius, colors } from '../constants/theme';
 import { Header, Button } from '../components/ui';
@@ -55,7 +55,7 @@ function mapPhoneRoleToGateRole(role: PhoneRole): GateRole {
 
 export function SessionSetupScreen() {
   const { colors: themeColors, isDark } = useTheme();
-  const navigation = useNavigation();
+  const router = useRouter();
   const { createSession } = useSessionStore();
 
   // Bluetooth sync for multi-phone
@@ -138,7 +138,7 @@ export function SessionSetupScreen() {
     if (!isFirstStep) {
       setCurrentStep(steps[currentStepIndex - 1]);
     } else {
-      navigation.goBack();
+      router.back();
     }
   };
 
@@ -189,16 +189,7 @@ export function SessionSetupScreen() {
     });
 
     // Navigate to timer with role info
-    navigation.navigate('Timer', {
-      quickSetup: {
-        startMethod,
-        gateCount,
-        totalDistance_m: totalDistance,
-        gateDistances_m: [0, ...lapDistances, totalDistance],
-        thisPhoneRole,
-        gateDeviceIds: [], // Will be filled by Bluetooth
-      } as QuickSetupConfig,
-    });
+    router.push('/timer');
   };
 
   // Connected devices for PhoneConnector

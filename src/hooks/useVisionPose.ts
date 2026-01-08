@@ -269,9 +269,43 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
       }
     }
 
-    // Gate crossing detection - this is the critical path
-    // Track when torso crosses from one side of gate to the other
-    if (detected && conf >= minConfidence * 100) {
+    // Gate crossing detection using slit-scan photo finish (preferred) or torsoX fallback
+    // The slit-scan approach uses presence ratio with hysteresis and linear interpolation
+    // for sub-frame accuracy, similar to professional photo finish systems
+
+    // Check for slit-scan crossing detection from native side
+    const slitScanCrossing = resultStr.indexOf('"crossingDetected":true') !== -1;
+    const slitScanIdx = resultStr.indexOf('"slitScan":{');
+    const hasSlitScan = slitScanIdx !== -1;
+
+    if (hasSlitScan && slitScanCrossing && !gateCrossedValue.value) {
+      // Slit-scan detected a crossing! Use the interpolated timestamp from native
+      gateCrossedValue.value = true;
+
+      // Extract interpolated timestamp from slit-scan (sub-frame accuracy)
+      const interpolatedTs = extractNumber('"interpolatedTimestamp":');
+      const slitConfidence = extractNumber('"slitConfidence":');
+      const crossingTimeMs = interpolatedTs > 0 ? interpolatedTs : timestamp;
+
+      // Notify crossing with slit-scan interpolated time
+      if (onGateCrossedJS) {
+        onGateCrossedJS(crossingTimeMs, slitConfidence > 0 ? slitConfidence * 100 : conf);
+      }
+
+      // Trigger frame buffer capture for review (if enabled)
+      if (enableFrameBuffer && onFrameBufferReadyJS) {
+        startFrameBufferCaptureValue.value = true;
+      }
+
+      // Extract and send captured frame if available
+      if (onCrossingFrameJS) {
+        const frameBase64 = extractString('"frameBase64":');
+        if (frameBase64.length > 0) {
+          onCrossingFrameJS(frameBase64);
+        }
+      }
+    } else if (detected && conf >= minConfidence * 100 && !hasSlitScan) {
+      // Fallback: Use torsoX crossing detection when slit-scan not available
       const currentPrevX = previousXValue.value;
 
       // Check if we have a valid previous position and haven't already crossed
@@ -284,7 +318,6 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
           gateCrossedValue.value = true;
 
           // Calculate interpolated crossing time for sub-frame accuracy
-          // This is the key to achieving ±0.01s accuracy like Photo Finish
           const prevX = currentPrevX;
           const prevTimestamp = previousTimestampValue.value;
           let crossingTimeMs = timestamp;
@@ -317,8 +350,10 @@ export function useVisionPose(options: UseVisionPoseOptions = {}): UseVisionPose
           }
         }
       }
+    }
 
-      // Update previous position and timestamp for next frame's interpolation
+    // Always update previous position and timestamp for fallback interpolation
+    if (detected && conf >= minConfidence * 100) {
       previousXValue.value = torsoX;
       previousTimestampValue.value = timestamp;
     }

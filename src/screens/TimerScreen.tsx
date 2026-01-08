@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, Modal, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, CommonActions } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Camera, useCameraDevice, useCameraFormat, useCameraPermission, PhotoFile } from 'react-native-vision-camera';
 import { File, Directory, Paths } from 'expo-file-system';
@@ -21,7 +21,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export function TimerScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const router = useRouter();
   const { colors } = useTheme(); // Use themed colors for indicators
   const { currentSession, athletes, selectedAthleteId, selectAthlete } = useSessionStore();
   const { timing: timingSettings } = useSettingsStore();
@@ -109,6 +109,19 @@ export function TimerScreen() {
     console.log('[Timer] Frame buffer ready:', { folderPath, frameCount, aiFrameIndex });
     // Store for navigation to review screen
     frameBufferRef.current = { folderPath, frameCount, aiFrameIndex };
+
+    // CRITICAL: Also update the result directly in the store
+    // This handles the race condition where the callback fires AFTER navigation
+    if (pendingResultIdRef.current) {
+      console.log('[Timer] Updating result with frame buffer info (async):', pendingResultIdRef.current);
+      updateResult(pendingResultIdRef.current, {
+        frameBufferPath: folderPath,
+        frameBufferCount: frameCount,
+        aiFrameIndex: aiFrameIndex,
+      });
+      pendingResultIdRef.current = null; // Clear after updating
+    }
+
     // Frame buffer capture is complete - stop the capture timer
     isCapturingFrameBufferRef.current = false;
     if (captureTimeoutRef.current) {
@@ -116,10 +129,14 @@ export function TimerScreen() {
       captureTimeoutRef.current = null;
     }
     forceRender(n => n + 1); // Trigger re-render to update enabled prop
-  }, []);
+  }, [updateResult]);
 
   // Ref to store frame buffer info
   const frameBufferRef = useRef<{ folderPath: string; frameCount: number; aiFrameIndex: number } | null>(null);
+
+  // Ref to store the pending result ID for frame buffer callback
+  // This handles the race condition where the callback fires AFTER navigation
+  const pendingResultIdRef = useRef<string | null>(null);
 
   // Ref to keep frame processor running during post-crossing frame capture
   // Using a ref (not state) because it updates SYNCHRONOUSLY - critical for avoiding
@@ -367,18 +384,24 @@ export function TimerScreen() {
       console.log('Navigating to RunResult:', currentResult.id);
       hasNavigatedRef.current = currentResult.id;
 
+      // CRITICAL: Store the result ID for the async frame buffer callback
+      // This allows handleFrameBufferReady to update the result even after navigation
+      pendingResultIdRef.current = currentResult.id;
+
       // Capture photo immediately when timer stops
       captureFinishPhoto(currentResult.id);
 
       // Save frame buffer info for manual review (Photo Finish style)
+      // This handles the case where frame buffer is already ready (synchronous)
       if (frameBufferRef.current) {
-        console.log('[Timer] Saving frame buffer info:', frameBufferRef.current);
+        console.log('[Timer] Saving frame buffer info (sync):', frameBufferRef.current);
         updateResult(currentResult.id, {
           frameBufferPath: frameBufferRef.current.folderPath,
           frameBufferCount: frameBufferRef.current.frameCount,
           aiFrameIndex: frameBufferRef.current.aiFrameIndex,
         });
         frameBufferRef.current = null; // Clear after saving
+        pendingResultIdRef.current = null; // Already saved, no need for async update
       }
 
       // Store result ID to use in timeout (avoid closure issues)
@@ -394,39 +417,17 @@ export function TimerScreen() {
       navigationTimerRef.current = setTimeout(() => {
         navigationTimerRef.current = null;
         try {
-          console.log('Attempting navigation reset...');
-          // Use reset to reliably navigate to RunResult
-          (navigation as any).reset({
-            index: 1,
-            routes: [
-              { name: 'MainTabs' },
-              { name: 'RunResult', params: { resultId } },
-            ],
-          });
-          console.log('Navigation reset completed');
+          console.log('Attempting navigation to RunResult...');
+          // Navigate to run-result screen with resultId param
+          router.push(`/run-result?resultId=${resultId}`);
+          console.log('Navigation completed');
         } catch (error) {
           console.error('Navigation error:', error);
-          // Fallback: try dispatch
-          try {
-            console.log('Trying dispatch fallback...');
-            navigation.dispatch(
-              CommonActions.reset({
-                index: 1,
-                routes: [
-                  { name: 'MainTabs' },
-                  { name: 'RunResult', params: { resultId } },
-                ],
-              })
-            );
-            console.log('Dispatch fallback completed');
-          } catch (e2) {
-            console.error('Dispatch fallback also failed:', e2);
-          }
         }
       }, 300);
     }
     // Don't return cleanup - we want the navigation to complete even if effect re-runs
-  }, [state, currentResult, navigation, captureFinishPhoto]);
+  }, [state, currentResult, router, captureFinishPhoto]);
 
   // Reset navigation tracking when timer resets to idle
   useEffect(() => {
@@ -524,6 +525,7 @@ export function TimerScreen() {
     // Clear frame capture refs for next run
     crossingFrameRef.current = null;
     frameBufferRef.current = null;
+    pendingResultIdRef.current = null;
   }, [trigger, useNativeVision, useMockAutoDetection, visionPose, autoTiming, manualTimer, sync]);
 
   const handleCameraReady = useCallback(() => {
@@ -675,7 +677,7 @@ export function TimerScreen() {
         leftAction={
           <IconButton
             icon={<View style={styles.backIcon} />}
-            onPress={() => navigation.goBack()}
+            onPress={() => router.back()}
             variant="ghost"
           />
         }
